@@ -8,6 +8,12 @@
 import SwiftUI
 import Combine
 
+struct HistoryTaskItem: Identifiable {
+    let id: UUID
+    let title: String
+    let isCompleted: Bool
+}
+
 class TaskViewModel: ObservableObject {
     @Published var tasks: [Task] = []
     @Published var level: Int = 1
@@ -19,16 +25,25 @@ class TaskViewModel: ObservableObject {
     private let streakKey = "streak"
     private let pointsKey = "dailyPoints"
     private let lastCheckKey = "lastCheckDate"
+    private let dateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter
+    }()
     
     init() {
         loadData()
         checkDailyReset()
+        applyTaskStateForToday()
     }
     
     func addTask(_ title: String, isEveryday: Bool = false, recurringDays: Set<Int> = []) {
         var newTask = Task(title: title)
         newTask.isEveryday = isEveryday
         newTask.recurringDays = isEveryday ? Array(0...6) : Array(recurringDays)
+        if isTaskApplicable(newTask, on: Date()) {
+            newTask.completionHistory[dateKey(for: Date())] = false
+        }
         tasks.append(newTask)
         saveData()
     }
@@ -50,9 +65,27 @@ class TaskViewModel: ObservableObject {
     func toggleTask(_ task: Task) {
         if let index = tasks.firstIndex(where: { $0.id == task.id }) {
             tasks[index].isCompleted.toggle()
+            tasks[index].completionHistory[dateKey(for: Date())] = tasks[index].isCompleted
             updateStreakAndPoints()
             saveData()
         }
+    }
+
+    func tasksForDate(_ date: Date) -> [HistoryTaskItem] {
+        let key = dateKey(for: date)
+
+        return tasks.compactMap { task in
+            guard isTaskApplicable(task, on: date) else {
+                return nil
+            }
+
+            return HistoryTaskItem(
+                id: task.id,
+                title: task.title,
+                isCompleted: task.completionHistory[key] ?? false
+            )
+        }
+        .sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
     }
     
     func updateStreakAndPoints() {
@@ -121,7 +154,6 @@ class TaskViewModel: ObservableObject {
     }
     
     private func checkDailyReset() {
-        let lastCheckKey = "lastCheckDate"
         let today = Calendar.current.startOfDay(for: Date())
         
         if let lastCheck = UserDefaults.standard.object(forKey: lastCheckKey) as? Date {
@@ -135,6 +167,7 @@ class TaskViewModel: ObservableObject {
                     if !task.recurringDays.isEmpty {
                         if task.isEveryday || task.recurringDays.contains(todayWeekday) {
                             task.isCompleted = false
+                            task.completionHistory[dateKey(for: today)] = false
                         }
                     }
                     return task
@@ -145,5 +178,37 @@ class TaskViewModel: ObservableObject {
             }
         }
         UserDefaults.standard.set(Date(), forKey: lastCheckKey)
+    }
+
+    private func applyTaskStateForToday() {
+        let today = Date()
+        let key = dateKey(for: today)
+
+        tasks = tasks.map { task in
+            var updatedTask = task
+            if isTaskApplicable(updatedTask, on: today) {
+                updatedTask.isCompleted = updatedTask.completionHistory[key] ?? false
+            } else {
+                updatedTask.isCompleted = false
+            }
+            return updatedTask
+        }
+    }
+
+    private func isTaskApplicable(_ task: Task, on date: Date) -> Bool {
+        if task.isEveryday {
+            return true
+        }
+
+        if !task.recurringDays.isEmpty {
+            let weekday = Calendar.current.component(.weekday, from: date) - 1 // 0-6 Sun-Sat
+            return task.recurringDays.contains(weekday)
+        }
+
+        return Calendar.current.isDate(task.createdAt, inSameDayAs: date)
+    }
+
+    private func dateKey(for date: Date) -> String {
+        dateFormatter.string(from: Calendar.current.startOfDay(for: date))
     }
 }

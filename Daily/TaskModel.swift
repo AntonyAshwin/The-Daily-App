@@ -14,6 +14,7 @@ struct Task: Identifiable, Codable {
     var createdAt = Date()
     var recurringDays: [Int] = [] // 0-6 for Sun-Sat, empty = no recurrence
     var isEveryday: Bool = false
+    var completionHistory: [String: Bool] = [:] // yyyy-MM-dd -> completion state
     
     var recurrenceText: String {
         if isEveryday {

@@ -9,11 +9,25 @@ import SwiftUI
 
 struct ContentView: View {
     @StateObject private var viewModel = TaskViewModel()
-    @State private var newTaskTitle = ""
     @State private var showAddTask = false
     @State private var editingTask: Task? = nil
+    @State private var selectedHistoryDate = Date()
     
     var body: some View {
+        TabView {
+            homeView
+                .tabItem {
+                    Label("Home", systemImage: "house.fill")
+                }
+
+            HistoryView(viewModel: viewModel, selectedDate: $selectedHistoryDate)
+                .tabItem {
+                    Label("History", systemImage: "calendar")
+                }
+        }
+    }
+
+    private var homeView: some View {
         ZStack {
             Color(UIColor.systemBackground).ignoresSafeArea()
             
@@ -149,6 +163,59 @@ struct ContentView: View {
             }, onUpdate: { updatedTask in
                 viewModel.updateTask(updatedTask)
             })
+        }
+    }
+}
+
+struct HistoryView: View {
+    @ObservedObject var viewModel: TaskViewModel
+    @Binding var selectedDate: Date
+
+    private var items: [HistoryTaskItem] {
+        viewModel.tasksForDate(selectedDate)
+    }
+
+    var body: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 16) {
+                DatePicker(
+                    "Select Date",
+                    selection: $selectedDate,
+                    displayedComponents: [.date]
+                )
+                .datePickerStyle(.graphical)
+                .padding(.horizontal, 12)
+
+                Text(selectedDate, style: .date)
+                    .font(.headline)
+                    .padding(.horizontal, 16)
+
+                if items.isEmpty {
+                    VStack(spacing: 10) {
+                        Image(systemName: "calendar.badge.exclamationmark")
+                            .font(.system(size: 36))
+                            .foregroundColor(.secondary)
+                        Text("No tasks for this date")
+                            .foregroundColor(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    List(items) { item in
+                        HStack(spacing: 12) {
+                            Image(systemName: item.isCompleted ? "checkmark.circle.fill" : "xmark.circle.fill")
+                                .foregroundColor(item.isCompleted ? Color(red: 0.0, green: 0.816, blue: 0.518) : Color(red: 1.0, green: 0.27, blue: 0.41))
+                            Text(item.title)
+                                .foregroundColor(.primary)
+                            Spacer()
+                            Text(item.isCompleted ? "Completed" : "Incomplete")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                    .listStyle(.plain)
+                }
+            }
+            .navigationTitle("History")
         }
     }
 }
