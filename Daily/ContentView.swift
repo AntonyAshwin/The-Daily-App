@@ -12,18 +12,24 @@ struct ContentView: View {
     @State private var showAddTask = false
     @State private var editingTask: Task? = nil
     @State private var selectedHistoryDate = Date()
+    @State private var selectedTab = 0
     
     var body: some View {
-        TabView {
+        TabView(selection: $selectedTab) {
             homeView
+                .tag(0)
                 .tabItem {
                     Label("Home", systemImage: "house.fill")
                 }
 
             HistoryView(viewModel: viewModel, selectedDate: $selectedHistoryDate)
+                .tag(1)
                 .tabItem {
                     Label("History", systemImage: "calendar")
                 }
+        }
+        .onChange(of: selectedTab) { _ in
+            Haptics.pageChange()
         }
     }
 
@@ -134,6 +140,9 @@ struct ContentView: View {
                         ForEach(viewModel.tasks) { task in
                             TaskRow(task: task, onTap: {
                                 viewModel.toggleTask(task)
+                                if let updatedTask = viewModel.tasks.first(where: { $0.id == task.id }) {
+                                    Haptics.taskProgress(isCompleted: updatedTask.isCompleted)
+                                }
                             }, onEdit: {
                                 editingTask = task
                                 showAddTask = true
