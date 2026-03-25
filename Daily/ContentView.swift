@@ -259,7 +259,9 @@ struct AddTaskSheet: View {
                     Button("Add") {
                         if !title.trimmingCharacters(in: .whitespaces).isEmpty {
                             onAdd(title, isEveryday, isEveryday ? Set(0...6) : selectedDays)
-                            isPresented = false
+                            title = ""
+                            selectedDays = []
+                            isEveryday = false
                         }
                     }
                     .disabled(title.trimmingCharacters(in: .whitespaces).isEmpty)
