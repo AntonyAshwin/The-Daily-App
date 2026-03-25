@@ -11,6 +11,7 @@ struct ContentView: View {
     @StateObject private var viewModel = TaskViewModel()
     @State private var newTaskTitle = ""
     @State private var showAddTask = false
+    @State private var editingTask: Task? = nil
     
     var body: some View {
         ZStack {
@@ -115,28 +116,38 @@ struct ContentView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .padding()
                 } else {
-                    ScrollView {
-                        VStack(spacing: 12) {
-                            ForEach(viewModel.tasks) { task in
-                                TaskRow(task: task, onTap: {
-                                    viewModel.toggleTask(task)
-                                }, onDelete: {
-                                    if let index = viewModel.tasks.firstIndex(where: { $0.id == task.id }) {
-                                        viewModel.deleteTask(at: index)
-                                    }
-                                })
-                            }
+                    List {
+                        ForEach(viewModel.tasks) { task in
+                            TaskRow(task: task, onTap: {
+                                viewModel.toggleTask(task)
+                            }, onEdit: {
+                                editingTask = task
+                                showAddTask = true
+                            }, onDelete: {
+                                if let index = viewModel.tasks.firstIndex(where: { $0.id == task.id }) {
+                                    viewModel.deleteTask(at: index)
+                                }
+                            })
+                            .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
+                            .listRowSeparator(.hidden)
+                            .listRowBackground(Color.clear)
                         }
-                        .padding(16)
                     }
+                    .listStyle(.plain)
+                    .scrollContentBackground(.hidden)
+                    .background(Color.clear)
                 }
                 
                 Spacer()
             }
         }
-        .sheet(isPresented: $showAddTask) {
-            AddTaskSheet(isPresented: $showAddTask, onAdd: { title, isEveryday, selectedDays in
+        .sheet(isPresented: $showAddTask, onDismiss: {
+            editingTask = nil
+        }) {
+            AddTaskSheet(isPresented: $showAddTask, editingTask: $editingTask, onAdd: { title, isEveryday, selectedDays in
                 viewModel.addTask(title, isEveryday: isEveryday, recurringDays: selectedDays)
+            }, onUpdate: { updatedTask in
+                viewModel.updateTask(updatedTask)
             })
         }
     }
@@ -145,6 +156,7 @@ struct ContentView: View {
 struct TaskRow: View {
     let task: Task
     let onTap: () -> Void
+    let onEdit: () -> Void
     let onDelete: () -> Void
     
     var body: some View {
@@ -167,28 +179,38 @@ struct TaskRow: View {
                 }
                 
                 Spacer()
-                
-                Button(action: onDelete) {
-                    Image(systemName: "trash.fill")
-                        .font(.system(size: 16))
-                        .foregroundColor(.red)
-                }
             }
         }
         .padding(12)
         .background(Color(UIColor.secondarySystemBackground))
         .cornerRadius(8)
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            Button(role: .destructive, action: onDelete) {
+                Image(systemName: "trash.fill")
+            }
+            
+            Button(action: onEdit) {
+                Image(systemName: "pencil")
+            }
+            .tint(.blue)
+        }
     }
 }
 
 struct AddTaskSheet: View {
     @Binding var isPresented: Bool
+    @Binding var editingTask: Task?
     let onAdd: (String, Bool, Set<Int>) -> Void
+    let onUpdate: (Task) -> Void
     @State private var title = ""
     @State private var isEveryday = false
     @State private var selectedDays: Set<Int> = []
     
     let days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+    
+    var isEditing: Bool {
+        editingTask != nil
+    }
     
     var body: some View {
         NavigationStack {
@@ -247,24 +269,41 @@ struct AddTaskSheet: View {
                 
                 Spacer()
             }
-            .navigationTitle("Add New Task")
+            .navigationTitle(isEditing ? "Edit Task" : "Add New Task")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") {
                         isPresented = false
+                        editingTask = nil
                     }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Add") {
+                    Button(isEditing ? "Update" : "Add") {
                         if !title.trimmingCharacters(in: .whitespaces).isEmpty {
-                            onAdd(title, isEveryday, isEveryday ? Set(0...6) : selectedDays)
-                            title = ""
-                            selectedDays = []
-                            isEveryday = false
+                            if isEditing, var updatedTask = editingTask {
+                                updatedTask.title = title
+                                updatedTask.isEveryday = isEveryday
+                                updatedTask.recurringDays = isEveryday ? Array(0...6) : Array(selectedDays)
+                                onUpdate(updatedTask)
+                                isPresented = false
+                                editingTask = nil
+                            } else {
+                                onAdd(title, isEveryday, isEveryday ? Set(0...6) : selectedDays)
+                                title = ""
+                                selectedDays = []
+                                isEveryday = false
+                            }
                         }
                     }
                     .disabled(title.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+            }
+            .onAppear {
+                if let task = editingTask {
+                    title = task.title
+                    isEveryday = task.isEveryday
+                    selectedDays = Set(task.recurringDays)
                 }
             }
         }

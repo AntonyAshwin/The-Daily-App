@@ -39,6 +39,14 @@ class TaskViewModel: ObservableObject {
         saveData()
     }
     
+    func updateTask(_ task: Task) {
+        if let index = tasks.firstIndex(where: { $0.id == task.id }) {
+            tasks[index] = task
+            updateStreakAndPoints()
+            saveData()
+        }
+    }
+    
     func toggleTask(_ task: Task) {
         if let index = tasks.firstIndex(where: { $0.id == task.id }) {
             tasks[index].isCompleted.toggle()
