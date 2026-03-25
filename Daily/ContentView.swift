@@ -8,14 +8,264 @@
 import SwiftUI
 
 struct ContentView: View {
+    @StateObject private var viewModel = TaskViewModel()
+    @State private var newTaskTitle = ""
+    @State private var showAddTask = false
+    
     var body: some View {
-        VStack {
-            Image(systemName: "globe")
-                .imageScale(.large)
-                .foregroundStyle(.tint)
-            Text("Hello, world!")
+        ZStack {
+            Color(UIColor.systemBackground).ignoresSafeArea()
+            
+            VStack(spacing: 0) {
+                // Header with Stats
+                VStack(spacing: 16) {
+                    HStack(spacing: 20) {
+                        // Level
+                        VStack(spacing: 4) {
+                            Text("Level")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            Text("\(viewModel.level)")
+                                .font(.system(size: 32, weight: .bold))
+                                .foregroundColor(.blue)
+                        }
+                        
+                        // Streak
+                        VStack(spacing: 4) {
+                            Text("Streak")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            HStack(spacing: 4) {
+                                Image(systemName: "flame.fill")
+                                    .foregroundColor(.orange)
+                                Text("\(viewModel.streak)")
+                                    .font(.system(size: 32, weight: .bold))
+                                    .foregroundColor(.orange)
+                            }
+                        }
+                        
+                        // Daily Points
+                        VStack(spacing: 4) {
+                            Text("Points")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            Text("\(viewModel.dailyPoints)")
+                                .font(.system(size: 32, weight: .bold))
+                                .foregroundColor(.yellow)
+                        }
+                        
+                        Spacer()
+                        
+                        // Add Button
+                        Button(action: { showAddTask = true }) {
+                            Image(systemName: "plus.circle.fill")
+                                .font(.system(size: 40))
+                                .foregroundColor(.blue)
+                        }
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 16)
+                    
+                    // Progress Bar
+                    VStack(spacing: 8) {
+                        HStack {
+                            Text("Progress")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            Spacer()
+                            Text("\(Int(viewModel.getProgressPercentage() * 100))%")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                        .padding(.horizontal, 20)
+                        
+                        GeometryReader { geometry in
+                            ZStack(alignment: .leading) {
+                                // Background
+                                RoundedRectangle(cornerRadius: 8)
+                                    .foregroundColor(Color(UIColor.systemGray6))
+                                
+                                // Progress
+                                RoundedRectangle(cornerRadius: 8)
+                                    .foregroundColor(viewModel.getProgressColor())
+                                    .frame(width: geometry.size.width * CGFloat(viewModel.getProgressPercentage()))
+                                    .animation(.easeInOut(duration: 0.3), value: viewModel.getProgressPercentage())
+                            }
+                        }
+                        .frame(height: 12)
+                        .padding(.horizontal, 20)
+                    }
+                    .padding(.vertical, 12)
+                }
+                .background(Color(UIColor.secondarySystemBackground))
+                
+                // Tasks List
+                if viewModel.tasks.isEmpty {
+                    VStack(spacing: 16) {
+                        Image(systemName: "checkmark.circle")
+                            .font(.system(size: 60))
+                            .foregroundColor(.gray)
+                        Text("No tasks yet")
+                            .font(.headline)
+                            .foregroundColor(.secondary)
+                        Text("Tap the + button to add your first task")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .padding()
+                } else {
+                    ScrollView {
+                        VStack(spacing: 12) {
+                            ForEach(viewModel.tasks) { task in
+                                TaskRow(task: task, onTap: {
+                                    viewModel.toggleTask(task)
+                                }, onDelete: {
+                                    if let index = viewModel.tasks.firstIndex(where: { $0.id == task.id }) {
+                                        viewModel.deleteTask(at: index)
+                                    }
+                                })
+                            }
+                        }
+                        .padding(16)
+                    }
+                }
+                
+                Spacer()
+            }
         }
-        .padding()
+        .sheet(isPresented: $showAddTask) {
+            AddTaskSheet(isPresented: $showAddTask, onAdd: { title, isEveryday, selectedDays in
+                viewModel.addTask(title, isEveryday: isEveryday, recurringDays: selectedDays)
+            })
+        }
+    }
+}
+
+struct TaskRow: View {
+    let task: Task
+    let onTap: () -> Void
+    let onDelete: () -> Void
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 12) {
+                Button(action: onTap) {
+                    Image(systemName: task.isCompleted ? "checkmark.circle.fill" : "circle")
+                        .font(.system(size: 24))
+                        .foregroundColor(task.isCompleted ? Color(red: 0.0, green: 0.816, blue: 0.518) : Color(red: 1.0, green: 0.27, blue: 0.41))
+                }
+                
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(task.title)
+                        .foregroundColor(.primary)
+                        .strikethrough(task.isCompleted, color: .gray)
+                    
+                    Text(task.recurrenceText)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                
+                Spacer()
+                
+                Button(action: onDelete) {
+                    Image(systemName: "trash.fill")
+                        .font(.system(size: 16))
+                        .foregroundColor(.red)
+                }
+            }
+        }
+        .padding(12)
+        .background(Color(UIColor.secondarySystemBackground))
+        .cornerRadius(8)
+    }
+}
+
+struct AddTaskSheet: View {
+    @Binding var isPresented: Bool
+    let onAdd: (String, Bool, Set<Int>) -> Void
+    @State private var title = ""
+    @State private var isEveryday = false
+    @State private var selectedDays: Set<Int> = []
+    
+    let days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+    
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 0) {
+                Form {
+                    Section("Task Title") {
+                        TextField("Enter task", text: $title)
+                    }
+                    
+                    Section("Recurrence") {
+                        Toggle("Everyday", isOn: Binding(
+                            get: { isEveryday },
+                            set: { newValue in
+                                isEveryday = newValue
+                                if newValue {
+                                    selectedDays = Set(0...6)
+                                }
+                            }
+                        ))
+                    }
+                }
+                
+                if !isEveryday {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Select Days")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .padding(.horizontal, 16)
+                            .padding(.top, 16)
+                        
+                        HStack(spacing: 8) {
+                            ForEach(0..<7, id: \.self) { index in
+                                Button(action: {
+                                    if selectedDays.contains(index) {
+                                        selectedDays.remove(index)
+                                    } else {
+                                        selectedDays.insert(index)
+                                    }
+                                }) {
+                                    Text(String(days[index].prefix(1)))
+                                        .font(.caption)
+                                        .fontWeight(.semibold)
+                                        .frame(maxWidth: .infinity)
+                                        .frame(height: 40)
+                                        .background(selectedDays.contains(index) ? Color.blue : Color(UIColor.systemGray6))
+                                        .foregroundColor(selectedDays.contains(index) ? .white : .primary)
+                                        .cornerRadius(8)
+                                }
+                            }
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 16)
+                    }
+                    .background(Color(UIColor.systemBackground))
+                }
+                
+                Spacer()
+            }
+            .navigationTitle("Add New Task")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        isPresented = false
+                    }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Add") {
+                        if !title.trimmingCharacters(in: .whitespaces).isEmpty {
+                            onAdd(title, isEveryday, isEveryday ? Set(0...6) : selectedDays)
+                            isPresented = false
+                        }
+                    }
+                    .disabled(title.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+            }
+        }
     }
 }
 
