@@ -217,6 +217,14 @@ struct HistoryView: View {
     private var streakDates: Set<Date> {
         Set(viewModel.currentStreakDates())
     }
+    
+    private var historicalStreakDates: Set<Date> {
+        Set(viewModel.historicalStreakDates())
+    }
+    
+    private var shieldUsedDates: Set<Date> {
+        Set(viewModel.shieldUsedDates())
+    }
 
     var body: some View {
         NavigationStack {
@@ -224,7 +232,9 @@ struct HistoryView: View {
                 StreakCalendarView(
                     displayedMonth: $displayedMonth,
                     selectedDate: $selectedDate,
-                    streakDates: streakDates
+                    streakDates: streakDates,
+                    historicalStreakDates: historicalStreakDates,
+                    shieldUsedDates: shieldUsedDates
                 )
                 .padding(.horizontal, 12)
 
@@ -347,6 +357,8 @@ struct StreakCalendarView: View {
     @Binding var displayedMonth: Date
     @Binding var selectedDate: Date
     let streakDates: Set<Date>
+    let historicalStreakDates: Set<Date>
+    let shieldUsedDates: Set<Date>
 
     private let calendar = Calendar.current
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 0), count: 7)
@@ -395,7 +407,9 @@ struct StreakCalendarView: View {
                         DayCellView(
                             date: date,
                             isSelected: calendar.isDate(date, inSameDayAs: selectedDate),
-                            isStreak: isStreakDate(date),
+                            isCurrentStreak: isCurrentStreakDate(date),
+                            isHistoricalStreak: isHistoricalStreakDate(date),
+                            isShieldUsed: isShieldUsedDate(date),
                             hasLeftStreak: hasAdjacentStreak(date, offset: -1),
                             hasRightStreak: hasAdjacentStreak(date, offset: 1)
                         )
@@ -438,8 +452,16 @@ struct StreakCalendarView: View {
         return cells
     }
 
-    private func isStreakDate(_ date: Date) -> Bool {
+    private func isCurrentStreakDate(_ date: Date) -> Bool {
         streakDates.contains(calendar.startOfDay(for: date))
+    }
+    
+    private func isHistoricalStreakDate(_ date: Date) -> Bool {
+        historicalStreakDates.contains(calendar.startOfDay(for: date))
+    }
+    
+    private func isShieldUsedDate(_ date: Date) -> Bool {
+        shieldUsedDates.contains(calendar.startOfDay(for: date))
     }
 
     private func hasAdjacentStreak(_ date: Date, offset: Int) -> Bool {
@@ -451,14 +473,16 @@ struct StreakCalendarView: View {
             return false
         }
 
-        return isStreakDate(adjacent)
+        return isHistoricalStreakDate(adjacent)
     }
 }
 
 struct DayCellView: View {
     let date: Date
     let isSelected: Bool
-    let isStreak: Bool
+    let isCurrentStreak: Bool
+    let isHistoricalStreak: Bool
+    let isShieldUsed: Bool
     let hasLeftStreak: Bool
     let hasRightStreak: Bool
 
@@ -466,7 +490,34 @@ struct DayCellView: View {
 
     var body: some View {
         ZStack {
-            if isStreak {
+            // Background for shield-used dates (blue)
+            if isShieldUsed {
+                UnevenRoundedRectangle(
+                    cornerRadii: .init(
+                        topLeading: hasLeftStreak ? 0 : 12,
+                        bottomLeading: hasLeftStreak ? 0 : 12,
+                        bottomTrailing: hasRightStreak ? 0 : 12,
+                        topTrailing: hasRightStreak ? 0 : 12
+                    )
+                )
+                .fill(Color.blue.opacity(0.35))
+                .frame(height: 28)
+            }
+            // Background for historical streak (lighter orange)
+            else if isHistoricalStreak && !isCurrentStreak {
+                UnevenRoundedRectangle(
+                    cornerRadii: .init(
+                        topLeading: hasLeftStreak ? 0 : 12,
+                        bottomLeading: hasLeftStreak ? 0 : 12,
+                        bottomTrailing: hasRightStreak ? 0 : 12,
+                        topTrailing: hasRightStreak ? 0 : 12
+                    )
+                )
+                .fill(Color.orange.opacity(0.2))
+                .frame(height: 28)
+            }
+            // Background for current streak (darker orange)
+            else if isCurrentStreak {
                 UnevenRoundedRectangle(
                     cornerRadii: .init(
                         topLeading: hasLeftStreak ? 0 : 12,

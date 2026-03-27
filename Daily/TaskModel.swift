@@ -14,6 +14,7 @@ struct UserProfile: Codable {
     var dailyPoints: Int = 0
     var streakShields: Int = 0
     var shieldCapacity: Int = 1
+    var shieldUsedDates: [String] = [] // yyyy-MM-dd dates where shield was used
 }
 
 struct Task: Identifiable, Codable {

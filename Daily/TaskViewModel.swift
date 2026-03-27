@@ -151,6 +151,29 @@ class TaskViewModel: ObservableObject {
         return consecutivePerfectDates(endingAt: effectiveEndDay)
     }
     
+    func historicalStreakDates() -> [Date] {
+        // Return all dates where at least one task earned points (visible in history)
+        let dateFormatter = self.dateFormatter
+        var streakDates = Set<String>()
+        
+        for task in tasks {
+            for (dateStr, _) in task.pointsHistory {
+                streakDates.insert(dateStr)
+            }
+        }
+        
+        return streakDates
+            .compactMap { dateFormatter.date(from: $0) }
+            .sorted()
+    }
+    
+    func shieldUsedDates() -> [Date] {
+        // Return dates where shield was used
+        return userProfile.shieldUsedDates
+            .compactMap { dateFormatter.date(from: $0) }
+            .sorted()
+    }
+    
     func updateStreakAndPoints() {
         let key = dateKey(for: Date())
 
