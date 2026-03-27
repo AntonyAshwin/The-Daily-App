@@ -55,9 +55,9 @@ struct ProfileView: View {
 
                     HStack {
                         Label {
-                            Text("Points")
+                            Text("RP")
                         } icon: {
-                            Image(systemName: "bolt.fill")
+                            Image(systemName: "coin.fill")
                                 .foregroundColor(.yellow)
                         }
                         Spacer()

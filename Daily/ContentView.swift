@@ -50,6 +50,12 @@ struct ContentView: View {
                 .tabItem {
                     Label("Profile", systemImage: "person.crop.circle")
                 }
+
+            ShopView(viewModel: viewModel)
+                .tag(4)
+                .tabItem {
+                    Label("Shop", systemImage: "bag.fill")
+                }
         }
         .onChange(of: selectedTab) { _ in
             Haptics.pageChange()
@@ -97,9 +103,9 @@ struct ContentView: View {
                             }
                         }
                         
-                        // Daily Points
+                        // Daily RP
                         VStack(spacing: 4) {
-                            Text("Points")
+                            Text("RP")
                                 .font(.caption)
                                 .foregroundColor(.secondary)
                             Text("\(viewModel.totalPoints)")
@@ -576,8 +582,8 @@ struct AddTaskSheet: View {
                         ))
                     }
 
-                    Section("Points") {
-                        Stepper("\(points) point\(points == 1 ? "" : "s")", value: $points, in: 1...100)
+                    Section("RP") {
+                        Stepper("\(points) RP", value: $points, in: 1...100)
                     }
                 }
                 
@@ -657,6 +663,53 @@ struct AddTaskSheet: View {
                     points = task.points
                 }
             }
+        }
+    }
+}
+
+struct ShopView: View {
+    @ObservedObject var viewModel: TaskViewModel
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section("Coming Soon") {
+                    HStack(spacing: 12) {
+                        Image(systemName: "star.fill")
+                            .font(.system(size: 24))
+                            .foregroundColor(.yellow)
+                        
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Shop Items")
+                                .font(.headline)
+                            Text("Spend your RP to customize your profile")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                        
+                        Spacer()
+                        
+                        Text("🔒")
+                    }
+                }
+                
+                Section("Your Balance") {
+                    HStack {
+                        Label {
+                            Text("Current RP")
+                        } icon: {
+                            Image(systemName: "coin.fill")
+                                .foregroundColor(.yellow)
+                        }
+                        Spacer()
+                        Text("\(viewModel.totalPoints)")
+                            .font(.headline)
+                            .foregroundColor(.yellow)
+                    }
+                }
+            }
+            .listStyle(.insetGrouped)
+            .navigationTitle("Shop")
         }
     }
 }
