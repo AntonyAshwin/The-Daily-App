@@ -16,16 +16,12 @@ struct ProfileView: View {
                 Section {
                     VStack(spacing: 12) {
                         LoopingLottieView(animationName: "rabbit")
-                            .frame(width: 120, height: 120)
-                            .clipShape(Circle())
-                            .overlay(
-                                Circle()
-                                    .stroke(Color(UIColor.systemGray5), lineWidth: 1)
-                            )
+                            .frame(width: 170, height: 170)
 
-                        Text("Profile Animation")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
+                        TextField("Your Name", text: $viewModel.profileName)
+                            .multilineTextAlignment(.center)
+                            .font(.headline)
+                            .textFieldStyle(.plain)
                     }
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 8)

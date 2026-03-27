@@ -185,21 +185,30 @@ struct ContentView: View {
 struct HistoryView: View {
     @ObservedObject var viewModel: TaskViewModel
     @Binding var selectedDate: Date
+    @State private var displayedMonth = Calendar.current.startOfMonth(for: Date())
 
     private var items: [HistoryTaskItem] {
         viewModel.tasksForDate(selectedDate)
     }
 
+    private var streakDates: Set<Date> {
+        Set(viewModel.currentStreakDates())
+    }
+
     var body: some View {
         NavigationStack {
             VStack(alignment: .leading, spacing: 16) {
-                DatePicker(
-                    "Select Date",
-                    selection: $selectedDate,
-                    displayedComponents: [.date]
+                StreakCalendarView(
+                    displayedMonth: $displayedMonth,
+                    selectedDate: $selectedDate,
+                    streakDates: streakDates
                 )
-                .datePickerStyle(.graphical)
                 .padding(.horizontal, 12)
+
+                Text("Streak: \(streakDates.count) day\(streakDates.count == 1 ? "" : "s")")
+                    .font(.subheadline)
+                    .foregroundColor(.orange)
+                    .padding(.horizontal, 16)
 
                 Text(selectedDate, style: .date)
                     .font(.headline)
@@ -231,7 +240,165 @@ struct HistoryView: View {
                 }
             }
             .navigationTitle("History")
+            .onAppear {
+                displayedMonth = Calendar.current.startOfMonth(for: selectedDate)
+            }
         }
+    }
+}
+
+struct StreakCalendarView: View {
+    @Binding var displayedMonth: Date
+    @Binding var selectedDate: Date
+    let streakDates: Set<Date>
+
+    private let calendar = Calendar.current
+    private let columns = Array(repeating: GridItem(.flexible(), spacing: 0), count: 7)
+    private let weekdaySymbols = ["S", "M", "T", "W", "T", "F", "S"]
+
+    var body: some View {
+        VStack(spacing: 10) {
+            HStack {
+                Button {
+                    if let previous = calendar.date(byAdding: .month, value: -1, to: displayedMonth) {
+                        displayedMonth = calendar.startOfMonth(for: previous)
+                    }
+                } label: {
+                    Image(systemName: "chevron.left")
+                        .foregroundColor(.primary)
+                }
+
+                Spacer()
+
+                Text(monthTitle)
+                    .font(.headline)
+
+                Spacer()
+
+                Button {
+                    if let next = calendar.date(byAdding: .month, value: 1, to: displayedMonth) {
+                        displayedMonth = calendar.startOfMonth(for: next)
+                    }
+                } label: {
+                    Image(systemName: "chevron.right")
+                        .foregroundColor(.primary)
+                }
+            }
+            .padding(.horizontal, 6)
+
+            LazyVGrid(columns: columns, spacing: 6) {
+                ForEach(weekdaySymbols, id: \ .self) { symbol in
+                    Text(symbol)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .frame(maxWidth: .infinity)
+                }
+
+                ForEach(dayCells.indices, id: \ .self) { index in
+                    if let date = dayCells[index] {
+                        DayCellView(
+                            date: date,
+                            isSelected: calendar.isDate(date, inSameDayAs: selectedDate),
+                            isStreak: isStreakDate(date),
+                            hasLeftStreak: hasAdjacentStreak(date, offset: -1),
+                            hasRightStreak: hasAdjacentStreak(date, offset: 1)
+                        )
+                        .onTapGesture {
+                            selectedDate = date
+                        }
+                    } else {
+                        Color.clear
+                            .frame(height: 36)
+                    }
+                }
+            }
+        }
+        .padding(.vertical, 8)
+    }
+
+    private var monthTitle: String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "LLLL yyyy"
+        return formatter.string(from: displayedMonth)
+    }
+
+    private var dayCells: [Date?] {
+        guard let range = calendar.range(of: .day, in: .month, for: displayedMonth) else {
+            return []
+        }
+
+        let firstDay = calendar.startOfMonth(for: displayedMonth)
+        let firstWeekday = calendar.component(.weekday, from: firstDay)
+        let leadingEmpty = firstWeekday - 1
+
+        var cells: [Date?] = Array(repeating: nil, count: leadingEmpty)
+
+        for day in range {
+            if let date = calendar.date(byAdding: .day, value: day - 1, to: firstDay) {
+                cells.append(date)
+            }
+        }
+
+        return cells
+    }
+
+    private func isStreakDate(_ date: Date) -> Bool {
+        streakDates.contains(calendar.startOfDay(for: date))
+    }
+
+    private func hasAdjacentStreak(_ date: Date, offset: Int) -> Bool {
+        guard let adjacent = calendar.date(byAdding: .day, value: offset, to: date) else {
+            return false
+        }
+
+        guard calendar.isDate(adjacent, equalTo: date, toGranularity: .month) else {
+            return false
+        }
+
+        return isStreakDate(adjacent)
+    }
+}
+
+struct DayCellView: View {
+    let date: Date
+    let isSelected: Bool
+    let isStreak: Bool
+    let hasLeftStreak: Bool
+    let hasRightStreak: Bool
+
+    private let calendar = Calendar.current
+
+    var body: some View {
+        ZStack {
+            if isStreak {
+                UnevenRoundedRectangle(
+                    cornerRadii: .init(
+                        topLeading: hasLeftStreak ? 0 : 12,
+                        bottomLeading: hasLeftStreak ? 0 : 12,
+                        bottomTrailing: hasRightStreak ? 0 : 12,
+                        topTrailing: hasRightStreak ? 0 : 12
+                    )
+                )
+                .fill(Color.orange.opacity(0.35))
+                .frame(height: 28)
+            }
+
+            Text("\(calendar.component(.day, from: date))")
+                .font(.subheadline)
+                .fontWeight(isSelected ? .bold : .regular)
+                .foregroundColor(isSelected ? .white : .primary)
+                .frame(width: 30, height: 30)
+                .background(isSelected ? Color.orange : Color.clear)
+                .clipShape(Circle())
+        }
+        .frame(height: 36)
+    }
+}
+
+private extension Calendar {
+    func startOfMonth(for date: Date) -> Date {
+        let components = dateComponents([.year, .month], from: date)
+        return self.date(from: components) ?? startOfDay(for: date)
     }
 }
 

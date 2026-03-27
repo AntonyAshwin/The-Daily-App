@@ -19,11 +19,17 @@ class TaskViewModel: ObservableObject {
     @Published var level: Int = 1
     @Published var streak: Int = 0
     @Published var dailyPoints: Int = 0
+    @Published var profileName: String = "My Name" {
+        didSet {
+            saveData()
+        }
+    }
     
     private let tasksKey = "tasks"
     private let levelKey = "level"
     private let streakKey = "streak"
     private let pointsKey = "dailyPoints"
+    private let profileNameKey = "profileName"
     private let lastCheckKey = "lastCheckDate"
     private let dateFormatter: DateFormatter = {
         let formatter = DateFormatter()
@@ -87,6 +93,22 @@ class TaskViewModel: ObservableObject {
         }
         .sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
     }
+
+    func currentStreakDates(endingAt endDate: Date = Date()) -> [Date] {
+        let calendar = Calendar.current
+        var dates: [Date] = []
+        var cursor = calendar.startOfDay(for: endDate)
+
+        while isPerfectDay(cursor) {
+            dates.append(cursor)
+            guard let previous = calendar.date(byAdding: .day, value: -1, to: cursor) else {
+                break
+            }
+            cursor = previous
+        }
+
+        return dates.reversed()
+    }
     
     func updateStreakAndPoints() {
         let completedCount = tasks.filter { $0.isCompleted }.count
@@ -137,6 +159,7 @@ class TaskViewModel: ObservableObject {
         UserDefaults.standard.set(level, forKey: levelKey)
         UserDefaults.standard.set(streak, forKey: streakKey)
         UserDefaults.standard.set(dailyPoints, forKey: pointsKey)
+        UserDefaults.standard.set(profileName, forKey: profileNameKey)
     }
     
     private func loadData() {
@@ -151,6 +174,7 @@ class TaskViewModel: ObservableObject {
         
         streak = UserDefaults.standard.integer(forKey: streakKey)
         dailyPoints = UserDefaults.standard.integer(forKey: pointsKey)
+        profileName = UserDefaults.standard.string(forKey: profileNameKey) ?? "My Name"
     }
     
     private func checkDailyReset() {
@@ -206,6 +230,16 @@ class TaskViewModel: ObservableObject {
         }
 
         return Calendar.current.isDate(task.createdAt, inSameDayAs: date)
+    }
+
+    private func isPerfectDay(_ date: Date) -> Bool {
+        let applicableTasks = tasks.filter { isTaskApplicable($0, on: date) }
+        guard !applicableTasks.isEmpty else { return false }
+
+        let key = dateKey(for: date)
+        return applicableTasks.allSatisfy { task in
+            task.completionHistory[key] ?? false
+        }
     }
 
     private func dateKey(for date: Date) -> String {
