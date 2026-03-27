@@ -39,6 +39,7 @@ class TaskViewModel: ObservableObject {
         loadData()
         checkDailyReset()
         applyTaskStateForToday()
+        recalculateStreak()
     }
 
     var todayTasks: [Task] {
@@ -116,24 +117,15 @@ class TaskViewModel: ObservableObject {
     func updateStreakAndPoints() {
         let applicableTasks = todayTasks
         let completedCount = applicableTasks.filter { $0.isCompleted }.count
-        let totalCount = applicableTasks.count
-        
-        if totalCount > 0 && completedCount == totalCount {
-            if userProfile.streak == 0 {
-                userProfile.streak = 1
-            } else {
-                userProfile.streak += 1
-            }
-            userProfile.dailyPoints += 50
-        } else if completedCount < totalCount {
-            userProfile.streak = 0
-        }
-        
+ 
         // Award points per completed task for today's applicable task set
         userProfile.dailyPoints = completedCount * 10
         
         // Level up every 100 points
         userProfile.level = 1 + (userProfile.dailyPoints / 100)
+
+        // Keep streak aligned with true consecutive perfect days.
+        recalculateStreak()
         
         saveData()
     }
@@ -207,7 +199,6 @@ class TaskViewModel: ObservableObject {
                     return task
                 }
                 userProfile.dailyPoints = 0
-                userProfile.streak = 0
                 saveData()
             }
         }
@@ -259,6 +250,10 @@ class TaskViewModel: ObservableObject {
         return applicableTasks.allSatisfy { task in
             task.completionHistory[key] ?? false
         }
+    }
+
+    private func recalculateStreak() {
+        userProfile.streak = currentStreakDates().count
     }
 
     private func dateKey(for date: Date) -> String {
