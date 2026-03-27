@@ -46,6 +46,12 @@ class TaskViewModel: ObservableObject {
         let today = Date()
         return tasks.filter { isTaskApplicable($0, on: today) }
     }
+
+    var recurringTasks: [Task] {
+        tasks
+            .filter { $0.isEveryday || !$0.recurringDays.isEmpty }
+            .sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+    }
     
     func addTask(_ title: String, isEveryday: Bool = false, recurringDays: Set<Int> = []) {
         var newTask = Task(title: title)
@@ -100,18 +106,17 @@ class TaskViewModel: ObservableObject {
 
     func currentStreakDates(endingAt endDate: Date = Date()) -> [Date] {
         let calendar = Calendar.current
-        var dates: [Date] = []
-        var cursor = calendar.startOfDay(for: endDate)
+        let endDay = calendar.startOfDay(for: endDate)
 
-        while isPerfectDay(cursor) {
-            dates.append(cursor)
-            guard let previous = calendar.date(byAdding: .day, value: -1, to: cursor) else {
-                break
-            }
-            cursor = previous
+        // Grace mode: if today is not perfect yet, show streak up to yesterday.
+        let effectiveEndDay: Date
+        if isPerfectDay(endDay) {
+            effectiveEndDay = endDay
+        } else {
+            effectiveEndDay = calendar.date(byAdding: .day, value: -1, to: endDay) ?? endDay
         }
 
-        return dates.reversed()
+        return consecutivePerfectDates(endingAt: effectiveEndDay)
     }
     
     func updateStreakAndPoints() {
@@ -254,6 +259,22 @@ class TaskViewModel: ObservableObject {
 
     private func recalculateStreak() {
         userProfile.streak = currentStreakDates().count
+    }
+
+    private func consecutivePerfectDates(endingAt endDate: Date) -> [Date] {
+        let calendar = Calendar.current
+        var dates: [Date] = []
+        var cursor = calendar.startOfDay(for: endDate)
+
+        while isPerfectDay(cursor) {
+            dates.append(cursor)
+            guard let previous = calendar.date(byAdding: .day, value: -1, to: cursor) else {
+                break
+            }
+            cursor = previous
+        }
+
+        return dates.reversed()
     }
 
     private func dateKey(for date: Date) -> String {

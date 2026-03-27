@@ -28,14 +28,40 @@ struct ContentView: View {
                     Label("History", systemImage: "calendar")
                 }
 
-            ProfileView(viewModel: viewModel)
+            RecurringTasksView(
+                viewModel: viewModel,
+                onEdit: { task in
+                    editingTask = task
+                    showAddTask = true
+                },
+                onDelete: { task in
+                    if let index = viewModel.tasks.firstIndex(where: { $0.id == task.id }) {
+                        viewModel.deleteTask(at: index)
+                    }
+                }
+            )
                 .tag(2)
+                .tabItem {
+                    Label("Recurring", systemImage: "repeat")
+                }
+
+            ProfileView(viewModel: viewModel)
+                .tag(3)
                 .tabItem {
                     Label("Profile", systemImage: "person.crop.circle")
                 }
         }
         .onChange(of: selectedTab) { _ in
             Haptics.pageChange()
+        }
+        .sheet(isPresented: $showAddTask, onDismiss: {
+            editingTask = nil
+        }) {
+            AddTaskSheet(isPresented: $showAddTask, editingTask: $editingTask, onAdd: { title, isEveryday, selectedDays in
+                viewModel.addTask(title, isEveryday: isEveryday, recurringDays: selectedDays)
+            }, onUpdate: { updatedTask in
+                viewModel.updateTask(updatedTask)
+            })
         }
     }
 
@@ -170,15 +196,6 @@ struct ContentView: View {
                 Spacer()
             }
         }
-        .sheet(isPresented: $showAddTask, onDismiss: {
-            editingTask = nil
-        }) {
-            AddTaskSheet(isPresented: $showAddTask, editingTask: $editingTask, onAdd: { title, isEveryday, selectedDays in
-                viewModel.addTask(title, isEveryday: isEveryday, recurringDays: selectedDays)
-            }, onUpdate: { updatedTask in
-                viewModel.updateTask(updatedTask)
-            })
-        }
     }
 }
 
@@ -243,6 +260,67 @@ struct HistoryView: View {
             .onAppear {
                 displayedMonth = Calendar.current.startOfMonth(for: selectedDate)
             }
+        }
+    }
+}
+
+struct RecurringTasksView: View {
+    @ObservedObject var viewModel: TaskViewModel
+    let onEdit: (Task) -> Void
+    let onDelete: (Task) -> Void
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if viewModel.recurringTasks.isEmpty {
+                    VStack(spacing: 12) {
+                        Image(systemName: "repeat")
+                            .font(.system(size: 42))
+                            .foregroundColor(.secondary)
+                        Text("No recurring tasks")
+                            .font(.headline)
+                            .foregroundColor(.secondary)
+                        Text("Create everyday or weekday tasks to manage them here")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .padding()
+                } else {
+                    List {
+                        ForEach(viewModel.recurringTasks) { task in
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(task.title)
+                                    .foregroundColor(.primary)
+                                Text(task.recurrenceText)
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                            .padding(.vertical, 4)
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                onEdit(task)
+                            }
+                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                Button(role: .destructive) {
+                                    onDelete(task)
+                                } label: {
+                                    Image(systemName: "trash.fill")
+                                }
+
+                                Button {
+                                    onEdit(task)
+                                } label: {
+                                    Image(systemName: "pencil")
+                                }
+                                .tint(.blue)
+                            }
+                        }
+                    }
+                    .listStyle(.plain)
+                }
+            }
+            .navigationTitle("Recurring")
         }
     }
 }
