@@ -23,6 +23,8 @@ class TaskViewModel: ObservableObject {
         }
     }
     
+    @Published var shieldUsedThisRound = false
+    
     private let tasksKey = "tasks"
     private let userProfileKey = "userProfile"
     private let levelKey = "level" // legacy migration key
@@ -56,6 +58,23 @@ class TaskViewModel: ObservableObject {
 
     var totalPoints: Int {
         tasks.reduce(0) { $0 + $1.pointsHistory.values.reduce(0, +) }
+    }
+    
+    var canBuyShield: Bool {
+        totalPoints >= 150 && userProfile.streakShields < userProfile.shieldCapacity
+    }
+    
+    var shieldsDisplay: String {
+        "\(userProfile.streakShields)/\(userProfile.shieldCapacity)"
+    }
+    
+    var nextUpgradeCost: Int {
+        userProfile.shieldCapacity == 1 ? 600 : (userProfile.shieldCapacity == 2 ? 1400 : 0)
+    }
+    
+    var canUpgradeCapacity: Bool {
+        (userProfile.shieldCapacity == 1 && totalPoints >= 600) ||
+        (userProfile.shieldCapacity == 2 && totalPoints >= 1400)
     }
     
     func addTask(_ title: String, isEveryday: Bool = false, recurringDays: Set<Int> = [], points: Int = 1) {
@@ -170,6 +189,93 @@ class TaskViewModel: ObservableObject {
         }
     }
     
+    func buyShield() -> Bool {
+        let cost = 150
+        guard totalPoints >= cost && userProfile.streakShields < userProfile.shieldCapacity else {
+            return false
+        }
+        
+        // Deduct points by removing from pointsHistory
+        var remainingCost = cost
+        for index in tasks.indices {
+            var daysToRemove: [String] = []
+            for (date, points) in tasks[index].pointsHistory {
+                if remainingCost <= 0 { break }
+                if points <= remainingCost {
+                    remainingCost -= points
+                    daysToRemove.append(date)
+                } else {
+                    daysToRemove.append(date)
+                    remainingCost = 0
+                }
+            }
+            for date in daysToRemove {
+                tasks[index].pointsHistory.removeValue(forKey: date)
+            }
+            if remainingCost <= 0 { break }
+        }
+        
+        userProfile.streakShields += 1
+        updateStreakAndPoints()
+        return true
+    }
+    
+    func upgradeCapacity() -> Bool {
+        if userProfile.shieldCapacity == 1 && totalPoints >= 600 {
+            // Deduct 600 points
+            var cost = 600
+            for index in tasks.indices {
+                var daysToRemove: [String] = []
+                for (date, points) in tasks[index].pointsHistory {
+                    if cost <= 0 { break }
+                    if points <= cost {
+                        cost -= points
+                        daysToRemove.append(date)
+                    } else {
+                        daysToRemove.append(date)
+                        cost = 0
+                    }
+                }
+                for date in daysToRemove {
+                    tasks[index].pointsHistory.removeValue(forKey: date)
+                }
+                if cost <= 0 { break }
+            }
+            
+            userProfile.shieldCapacity = 2
+            updateStreakAndPoints()
+            return true
+        }
+        
+        if userProfile.shieldCapacity == 2 && totalPoints >= 1400 {
+            // Deduct 1400 points
+            var cost = 1400
+            for index in tasks.indices {
+                var daysToRemove: [String] = []
+                for (date, points) in tasks[index].pointsHistory {
+                    if cost <= 0 { break }
+                    if points <= cost {
+                        cost -= points
+                        daysToRemove.append(date)
+                    } else {
+                        daysToRemove.append(date)
+                        cost = 0
+                    }
+                }
+                for date in daysToRemove {
+                    tasks[index].pointsHistory.removeValue(forKey: date)
+                }
+                if cost <= 0 { break }
+            }
+            
+            userProfile.shieldCapacity = 3
+            updateStreakAndPoints()
+            return true
+        }
+        
+        return false
+    }
+    
     private func saveData() {
         UserDefaults.standard.set(try? JSONEncoder().encode(tasks), forKey: tasksKey)
         UserDefaults.standard.set(try? JSONEncoder().encode(userProfile), forKey: userProfileKey)
@@ -271,7 +377,23 @@ class TaskViewModel: ObservableObject {
     }
 
     private func recalculateStreak() {
-        userProfile.streak = currentStreakDates().count
+        let newStreakCount = currentStreakDates().count
+        let previousStreakCount = userProfile.streak
+        
+        // Check if streak would reset (new count < previous count)
+        if newStreakCount < previousStreakCount && previousStreakCount > 0 {
+            // Streak would reset - try to consume a shield
+            if userProfile.streakShields > 0 {
+                userProfile.streakShields -= 1
+                shieldUsedThisRound = true
+                // Keep previous streak by not updating it
+                return
+            }
+        }
+        
+        // No shield available or streak didn't reset, update normally
+        userProfile.streak = newStreakCount
+        shieldUsedThisRound = false
     }
 
     private func consecutivePerfectDates(endingAt endDate: Date) -> [Date] {

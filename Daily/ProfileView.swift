@@ -65,6 +65,19 @@ struct ProfileView: View {
                             .font(.headline)
                             .foregroundColor(.yellow)
                     }
+
+                    HStack {
+                        Label {
+                            Text("Shields")
+                        } icon: {
+                            Image(systemName: "shield.fill")
+                                .foregroundColor(.orange)
+                        }
+                        Spacer()
+                        Text(viewModel.shieldsDisplay)
+                            .font(.headline)
+                            .foregroundColor(.orange)
+                    }
                 }
             }
             .listStyle(.insetGrouped)

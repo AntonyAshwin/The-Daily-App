@@ -12,6 +12,8 @@ struct UserProfile: Codable {
     var level: Int = 1
     var streak: Int = 0
     var dailyPoints: Int = 0
+    var streakShields: Int = 0
+    var shieldCapacity: Int = 1
 }
 
 struct Task: Identifiable, Codable {
