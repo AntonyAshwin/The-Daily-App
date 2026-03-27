@@ -60,12 +60,26 @@ class TaskViewModel: ObservableObject {
         tasks.reduce(0) { $0 + $1.pointsHistory.values.reduce(0, +) }
     }
     
+    private func shieldCost() -> Int {
+        switch userProfile.streakShields {
+        case 0: return 150  // 1st shield
+        case 1: return 250  // 2nd shield
+        case 2: return 400  // 3rd shield
+        default: return 0   // Can't buy more
+        }
+    }
+    
     var canBuyShield: Bool {
-        totalPoints >= 150 && userProfile.streakShields < userProfile.shieldCapacity
+        let cost = shieldCost()
+        return totalPoints >= cost && userProfile.streakShields < userProfile.shieldCapacity
     }
     
     var shieldsDisplay: String {
         "\(userProfile.streakShields)/\(userProfile.shieldCapacity)"
+    }
+    
+    var shieldCostDisplay: Int {
+        shieldCost()
     }
     
     var nextUpgradeCost: Int {
@@ -213,7 +227,7 @@ class TaskViewModel: ObservableObject {
     }
     
     func buyShield() -> Bool {
-        let cost = 150
+        let cost = shieldCost()
         guard totalPoints >= cost && userProfile.streakShields < userProfile.shieldCapacity else {
             return false
         }

@@ -43,7 +43,7 @@ struct StreakShieldView: View {
                     }
                     Spacer()
                     VStack(alignment: .trailing, spacing: 4) {
-                        Text("150 RP")
+                        Text("\(viewModel.shieldCostDisplay) RP")
                             .font(.headline)
                             .foregroundColor(.yellow)
                         Button(action: buyShield) {
