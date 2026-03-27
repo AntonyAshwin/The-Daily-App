@@ -57,12 +57,13 @@ struct ProfileView: View {
                         Label {
                             Text("RP")
                         } icon: {
-                            Image(systemName: "coin.fill")
+                            Image(systemName: "banknote.fill")
                                 .foregroundColor(.yellow)
                         }
                         Spacer()
                         Text("\(viewModel.totalPoints)")
-                            .foregroundColor(.secondary)
+                            .font(.headline)
+                            .foregroundColor(.yellow)
                     }
                 }
             }
