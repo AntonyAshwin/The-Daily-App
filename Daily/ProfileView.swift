@@ -15,17 +15,15 @@ struct ProfileView: View {
             List {
                 Section {
                     VStack(spacing: 12) {
-                        ZStack {
-                            Circle()
-                                .fill(Color(UIColor.systemGray5))
-                                .frame(width: 96, height: 96)
+                        LoopingLottieView(animationName: "rabbit")
+                            .frame(width: 120, height: 120)
+                            .clipShape(Circle())
+                            .overlay(
+                                Circle()
+                                    .stroke(Color(UIColor.systemGray5), lineWidth: 1)
+                            )
 
-                            Image(systemName: "person.fill")
-                                .font(.system(size: 40))
-                                .foregroundColor(.secondary)
-                        }
-
-                        Text("User Photo")
+                        Text("Profile Animation")
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
