@@ -127,7 +127,7 @@ struct ContentView: View {
                 .background(Color(UIColor.secondarySystemBackground))
                 
                 // Tasks List
-                if viewModel.tasks.isEmpty {
+                if viewModel.todayTasks.isEmpty {
                     VStack(spacing: 16) {
                         Image(systemName: "checkmark.circle")
                             .font(.system(size: 60))
@@ -143,7 +143,7 @@ struct ContentView: View {
                     .padding()
                 } else {
                     List {
-                        ForEach(viewModel.tasks) { task in
+                        ForEach(viewModel.todayTasks) { task in
                             TaskRow(task: task, onTap: {
                                 viewModel.toggleTask(task)
                                 if let updatedTask = viewModel.tasks.first(where: { $0.id == task.id }) {

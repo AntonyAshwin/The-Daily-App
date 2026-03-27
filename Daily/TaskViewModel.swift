@@ -42,6 +42,11 @@ class TaskViewModel: ObservableObject {
         checkDailyReset()
         applyTaskStateForToday()
     }
+
+    var todayTasks: [Task] {
+        let today = Date()
+        return tasks.filter { isTaskApplicable($0, on: today) }
+    }
     
     func addTask(_ title: String, isEveryday: Bool = false, recurringDays: Set<Int> = []) {
         var newTask = Task(title: title)
@@ -111,8 +116,9 @@ class TaskViewModel: ObservableObject {
     }
     
     func updateStreakAndPoints() {
-        let completedCount = tasks.filter { $0.isCompleted }.count
-        let totalCount = tasks.count
+        let applicableTasks = todayTasks
+        let completedCount = applicableTasks.filter { $0.isCompleted }.count
+        let totalCount = applicableTasks.count
         
         if totalCount > 0 && completedCount == totalCount {
             if streak == 0 {
@@ -125,7 +131,7 @@ class TaskViewModel: ObservableObject {
             streak = 0
         }
         
-        // Award points per completed task
+        // Award points per completed task for today's applicable task set
         dailyPoints = completedCount * 10
         
         // Level up every 100 points
@@ -135,9 +141,10 @@ class TaskViewModel: ObservableObject {
     }
     
     func getProgressPercentage() -> Double {
-        guard !tasks.isEmpty else { return 0 }
-        let completed = tasks.filter { $0.isCompleted }.count
-        return Double(completed) / Double(tasks.count)
+        let applicableTasks = todayTasks
+        guard !applicableTasks.isEmpty else { return 0 }
+        let completed = applicableTasks.filter { $0.isCompleted }.count
+        return Double(completed) / Double(applicableTasks.count)
     }
     
     func getProgressColor() -> Color {
@@ -220,16 +227,25 @@ class TaskViewModel: ObservableObject {
     }
 
     private func isTaskApplicable(_ task: Task, on date: Date) -> Bool {
+        let calendar = Calendar.current
+        let day = calendar.startOfDay(for: date)
+        let createdDay = calendar.startOfDay(for: task.createdAt)
+
+        // A task should never be shown before it exists.
+        guard day >= createdDay else {
+            return false
+        }
+
         if task.isEveryday {
             return true
         }
 
         if !task.recurringDays.isEmpty {
-            let weekday = Calendar.current.component(.weekday, from: date) - 1 // 0-6 Sun-Sat
+            let weekday = calendar.component(.weekday, from: date) - 1 // 0-6 Sun-Sat
             return task.recurringDays.contains(weekday)
         }
 
-        return Calendar.current.isDate(task.createdAt, inSameDayAs: date)
+        return calendar.isDate(task.createdAt, inSameDayAs: date)
     }
 
     private func isPerfectDay(_ date: Date) -> Bool {
