@@ -27,6 +27,12 @@ struct ContentView: View {
                 .tabItem {
                     Label("History", systemImage: "calendar")
                 }
+
+            ProfileView(viewModel: viewModel)
+                .tag(2)
+                .tabItem {
+                    Label("Profile", systemImage: "person.crop.circle")
+                }
         }
         .onChange(of: selectedTab) { _ in
             Haptics.pageChange()
