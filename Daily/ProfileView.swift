@@ -61,7 +61,7 @@ struct ProfileView: View {
                                 .foregroundColor(.yellow)
                         }
                         Spacer()
-                        Text("\(viewModel.userProfile.dailyPoints)")
+                        Text("\(viewModel.totalPoints)")
                             .foregroundColor(.secondary)
                     }
                 }

@@ -57,8 +57,8 @@ struct ContentView: View {
         .sheet(isPresented: $showAddTask, onDismiss: {
             editingTask = nil
         }) {
-            AddTaskSheet(isPresented: $showAddTask, editingTask: $editingTask, onAdd: { title, isEveryday, selectedDays in
-                viewModel.addTask(title, isEveryday: isEveryday, recurringDays: selectedDays)
+            AddTaskSheet(isPresented: $showAddTask, editingTask: $editingTask, onAdd: { title, isEveryday, selectedDays, points in
+                viewModel.addTask(title, isEveryday: isEveryday, recurringDays: selectedDays, points: points)
             }, onUpdate: { updatedTask in
                 viewModel.updateTask(updatedTask)
             })
@@ -102,7 +102,7 @@ struct ContentView: View {
                             Text("Points")
                                 .font(.caption)
                                 .foregroundColor(.secondary)
-                            Text("\(viewModel.userProfile.dailyPoints)")
+                            Text("\(viewModel.totalPoints)")
                                 .font(.system(size: 32, weight: .bold))
                                 .foregroundColor(.yellow)
                         }
@@ -248,6 +248,12 @@ struct HistoryView: View {
                             Text(item.title)
                                 .foregroundColor(.primary)
                             Spacer()
+                            if item.pointsEarned > 0 {
+                                Text("+\(item.pointsEarned)")
+                                    .font(.caption)
+                                    .fontWeight(.semibold)
+                                    .foregroundColor(.blue)
+                            }
                             Text(item.isCompleted ? "Completed" : "Incomplete")
                                 .font(.caption)
                                 .foregroundColor(.secondary)
@@ -289,12 +295,18 @@ struct RecurringTasksView: View {
                 } else {
                     List {
                         ForEach(viewModel.recurringTasks) { task in
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(task.title)
-                                    .foregroundColor(.primary)
-                                Text(task.recurrenceText)
+                            HStack {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(task.title)
+                                        .foregroundColor(.primary)
+                                    Text(task.recurrenceText)
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+                                Spacer()
+                                Text("\(task.points) pt\(task.points == 1 ? "" : "s")")
                                     .font(.caption)
-                                    .foregroundColor(.secondary)
+                                    .foregroundColor(.blue)
                             }
                             .padding(.vertical, 4)
                             .contentShape(Rectangle())
@@ -504,8 +516,12 @@ struct TaskRow: View {
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
-                
+
                 Spacer()
+
+                Text("\(task.points) pt\(task.points == 1 ? "" : "s")")
+                    .font(.caption)
+                    .foregroundColor(.blue)
             }
         }
         .padding(12)
@@ -527,11 +543,12 @@ struct TaskRow: View {
 struct AddTaskSheet: View {
     @Binding var isPresented: Bool
     @Binding var editingTask: Task?
-    let onAdd: (String, Bool, Set<Int>) -> Void
+    let onAdd: (String, Bool, Set<Int>, Int) -> Void
     let onUpdate: (Task) -> Void
     @State private var title = ""
     @State private var isEveryday = false
     @State private var selectedDays: Set<Int> = []
+    @State private var points: Int = 1
     
     let days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
     
@@ -557,6 +574,10 @@ struct AddTaskSheet: View {
                                 }
                             }
                         ))
+                    }
+
+                    Section("Points") {
+                        Stepper("\(points) point\(points == 1 ? "" : "s")", value: $points, in: 1...100)
                     }
                 }
                 
@@ -612,14 +633,16 @@ struct AddTaskSheet: View {
                                 updatedTask.title = title
                                 updatedTask.isEveryday = isEveryday
                                 updatedTask.recurringDays = isEveryday ? Array(0...6) : Array(selectedDays)
+                                updatedTask.points = points
                                 onUpdate(updatedTask)
                                 isPresented = false
                                 editingTask = nil
                             } else {
-                                onAdd(title, isEveryday, isEveryday ? Set(0...6) : selectedDays)
+                                onAdd(title, isEveryday, isEveryday ? Set(0...6) : selectedDays, points)
                                 title = ""
                                 selectedDays = []
                                 isEveryday = false
+                                points = 1
                             }
                         }
                     }
@@ -631,6 +654,7 @@ struct AddTaskSheet: View {
                     title = task.title
                     isEveryday = task.isEveryday
                     selectedDays = Set(task.recurringDays)
+                    points = task.points
                 }
             }
         }

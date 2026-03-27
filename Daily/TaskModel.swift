@@ -22,6 +22,8 @@ struct Task: Identifiable, Codable {
     var recurringDays: [Int] = [] // 0-6 for Sun-Sat, empty = no recurrence
     var isEveryday: Bool = false
     var completionHistory: [String: Bool] = [:] // yyyy-MM-dd -> completion state
+    var points: Int = 1
+    var pointsHistory: [String: Int] = [:] // yyyy-MM-dd -> points earned that day
     
     var recurrenceText: String {
         if isEveryday {

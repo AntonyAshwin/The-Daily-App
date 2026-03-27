@@ -12,6 +12,7 @@ struct HistoryTaskItem: Identifiable {
     let id: UUID
     let title: String
     let isCompleted: Bool
+    let pointsEarned: Int
 }
 
 class TaskViewModel: ObservableObject {
@@ -52,9 +53,14 @@ class TaskViewModel: ObservableObject {
             .filter { $0.isEveryday || !$0.recurringDays.isEmpty }
             .sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
     }
+
+    var totalPoints: Int {
+        tasks.reduce(0) { $0 + $1.pointsHistory.values.reduce(0, +) }
+    }
     
-    func addTask(_ title: String, isEveryday: Bool = false, recurringDays: Set<Int> = []) {
+    func addTask(_ title: String, isEveryday: Bool = false, recurringDays: Set<Int> = [], points: Int = 1) {
         var newTask = Task(title: title)
+        newTask.points = points
         newTask.isEveryday = isEveryday
         newTask.recurringDays = isEveryday ? Array(0...6) : Array(recurringDays)
         if isTaskApplicable(newTask, on: Date()) {
@@ -81,7 +87,13 @@ class TaskViewModel: ObservableObject {
     func toggleTask(_ task: Task) {
         if let index = tasks.firstIndex(where: { $0.id == task.id }) {
             tasks[index].isCompleted.toggle()
-            tasks[index].completionHistory[dateKey(for: Date())] = tasks[index].isCompleted
+            let key = dateKey(for: Date())
+            tasks[index].completionHistory[key] = tasks[index].isCompleted
+            if tasks[index].isCompleted {
+                tasks[index].pointsHistory[key] = tasks[index].points
+            } else {
+                tasks[index].pointsHistory.removeValue(forKey: key)
+            }
             updateStreakAndPoints()
             saveData()
         }
@@ -98,7 +110,8 @@ class TaskViewModel: ObservableObject {
             return HistoryTaskItem(
                 id: task.id,
                 title: task.title,
-                isCompleted: task.completionHistory[key] ?? false
+                isCompleted: task.completionHistory[key] ?? false,
+                pointsEarned: task.pointsHistory[key] ?? 0
             )
         }
         .sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
@@ -120,18 +133,19 @@ class TaskViewModel: ObservableObject {
     }
     
     func updateStreakAndPoints() {
-        let applicableTasks = todayTasks
-        let completedCount = applicableTasks.filter { $0.isCompleted }.count
- 
-        // Award points per completed task for today's applicable task set
-        userProfile.dailyPoints = completedCount * 10
-        
-        // Level up every 100 points
-        userProfile.level = 1 + (userProfile.dailyPoints / 100)
+        let key = dateKey(for: Date())
+
+        // Daily points = sum of snapshot points for today's completed tasks
+        userProfile.dailyPoints = todayTasks.reduce(0) { sum, task in
+            sum + (task.pointsHistory[key] ?? 0)
+        }
+
+        // Level up every 100 total points
+        userProfile.level = 1 + (totalPoints / 100)
 
         // Keep streak aligned with true consecutive perfect days.
         recalculateStreak()
-        
+
         saveData()
     }
     
@@ -203,7 +217,6 @@ class TaskViewModel: ObservableObject {
                     }
                     return task
                 }
-                userProfile.dailyPoints = 0
                 saveData()
             }
         }
