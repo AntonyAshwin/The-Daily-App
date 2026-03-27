@@ -7,6 +7,7 @@
 
 import SwiftUI
 import Combine
+import AVFoundation
 
 struct HistoryTaskItem: Identifiable {
     let id: UUID
@@ -16,6 +17,7 @@ struct HistoryTaskItem: Identifiable {
 }
 
 class TaskViewModel: ObservableObject {
+    private var audioPlayer: AVAudioPlayer?
     @Published var tasks: [Task] = []
     @Published var userProfile: UserProfile = UserProfile() {
         didSet {
@@ -124,12 +126,19 @@ class TaskViewModel: ObservableObject {
             tasks[index].completionHistory[key] = tasks[index].isCompleted
             if tasks[index].isCompleted {
                 tasks[index].pointsHistory[key] = tasks[index].points
+                playTaskCompleteSound()
             } else {
                 tasks[index].pointsHistory.removeValue(forKey: key)
             }
             updateStreakAndPoints()
             saveData()
         }
+    }
+
+    private func playTaskCompleteSound() {
+        guard let url = Bundle.main.url(forResource: "taskComplete", withExtension: "mp3") else { return }
+        audioPlayer = try? AVAudioPlayer(contentsOf: url)
+        audioPlayer?.play()
     }
 
     func tasksForDate(_ date: Date) -> [HistoryTaskItem] {
