@@ -52,7 +52,7 @@ struct ContentView: View {
                             Text("Level")
                                 .font(.caption)
                                 .foregroundColor(.secondary)
-                            Text("\(viewModel.level)")
+                            Text("\(viewModel.userProfile.level)")
                                 .font(.system(size: 32, weight: .bold))
                                 .foregroundColor(.blue)
                         }
@@ -65,7 +65,7 @@ struct ContentView: View {
                             HStack(spacing: 4) {
                                 Image(systemName: "flame.fill")
                                     .foregroundColor(.orange)
-                                Text("\(viewModel.streak)")
+                                Text("\(viewModel.userProfile.streak)")
                                     .font(.system(size: 32, weight: .bold))
                                     .foregroundColor(.orange)
                             }
@@ -76,7 +76,7 @@ struct ContentView: View {
                             Text("Points")
                                 .font(.caption)
                                 .foregroundColor(.secondary)
-                            Text("\(viewModel.dailyPoints)")
+                            Text("\(viewModel.userProfile.dailyPoints)")
                                 .font(.system(size: 32, weight: .bold))
                                 .foregroundColor(.yellow)
                         }

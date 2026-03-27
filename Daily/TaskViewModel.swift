@@ -16,20 +16,18 @@ struct HistoryTaskItem: Identifiable {
 
 class TaskViewModel: ObservableObject {
     @Published var tasks: [Task] = []
-    @Published var level: Int = 1
-    @Published var streak: Int = 0
-    @Published var dailyPoints: Int = 0
-    @Published var profileName: String = "My Name" {
+    @Published var userProfile: UserProfile = UserProfile() {
         didSet {
             saveData()
         }
     }
     
     private let tasksKey = "tasks"
-    private let levelKey = "level"
-    private let streakKey = "streak"
-    private let pointsKey = "dailyPoints"
-    private let profileNameKey = "profileName"
+    private let userProfileKey = "userProfile"
+    private let levelKey = "level" // legacy migration key
+    private let streakKey = "streak" // legacy migration key
+    private let pointsKey = "dailyPoints" // legacy migration key
+    private let profileNameKey = "profileName" // legacy migration key
     private let lastCheckKey = "lastCheckDate"
     private let dateFormatter: DateFormatter = {
         let formatter = DateFormatter()
@@ -121,21 +119,21 @@ class TaskViewModel: ObservableObject {
         let totalCount = applicableTasks.count
         
         if totalCount > 0 && completedCount == totalCount {
-            if streak == 0 {
-                streak = 1
+            if userProfile.streak == 0 {
+                userProfile.streak = 1
             } else {
-                streak += 1
+                userProfile.streak += 1
             }
-            dailyPoints += 50
+            userProfile.dailyPoints += 50
         } else if completedCount < totalCount {
-            streak = 0
+            userProfile.streak = 0
         }
         
         // Award points per completed task for today's applicable task set
-        dailyPoints = completedCount * 10
+        userProfile.dailyPoints = completedCount * 10
         
         // Level up every 100 points
-        level = 1 + (dailyPoints / 100)
+        userProfile.level = 1 + (userProfile.dailyPoints / 100)
         
         saveData()
     }
@@ -163,10 +161,7 @@ class TaskViewModel: ObservableObject {
     
     private func saveData() {
         UserDefaults.standard.set(try? JSONEncoder().encode(tasks), forKey: tasksKey)
-        UserDefaults.standard.set(level, forKey: levelKey)
-        UserDefaults.standard.set(streak, forKey: streakKey)
-        UserDefaults.standard.set(dailyPoints, forKey: pointsKey)
-        UserDefaults.standard.set(profileName, forKey: profileNameKey)
+        UserDefaults.standard.set(try? JSONEncoder().encode(userProfile), forKey: userProfileKey)
     }
     
     private func loadData() {
@@ -175,13 +170,21 @@ class TaskViewModel: ObservableObject {
                 tasks = decodedTasks
             }
         }
-        
-        level = UserDefaults.standard.integer(forKey: levelKey)
-        if level == 0 { level = 1 }
-        
-        streak = UserDefaults.standard.integer(forKey: streakKey)
-        dailyPoints = UserDefaults.standard.integer(forKey: pointsKey)
-        profileName = UserDefaults.standard.string(forKey: profileNameKey) ?? "My Name"
+
+        if let profileData = UserDefaults.standard.data(forKey: userProfileKey),
+           let decodedProfile = try? JSONDecoder().decode(UserProfile.self, from: profileData) {
+            userProfile = decodedProfile
+        } else {
+            // Migrate data from legacy flat keys.
+            var migratedProfile = UserProfile()
+            let legacyLevel = UserDefaults.standard.integer(forKey: levelKey)
+            migratedProfile.level = legacyLevel == 0 ? 1 : legacyLevel
+            migratedProfile.streak = UserDefaults.standard.integer(forKey: streakKey)
+            migratedProfile.dailyPoints = UserDefaults.standard.integer(forKey: pointsKey)
+            migratedProfile.name = UserDefaults.standard.string(forKey: profileNameKey) ?? "My Name"
+            userProfile = migratedProfile
+            saveData()
+        }
     }
     
     private func checkDailyReset() {
@@ -203,8 +206,8 @@ class TaskViewModel: ObservableObject {
                     }
                     return task
                 }
-                dailyPoints = 0
-                streak = 0
+                userProfile.dailyPoints = 0
+                userProfile.streak = 0
                 saveData()
             }
         }

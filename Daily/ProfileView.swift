@@ -18,7 +18,7 @@ struct ProfileView: View {
                         LoopingLottieView(animationName: "rabbit")
                             .frame(width: 170, height: 170)
 
-                        TextField("Your Name", text: $viewModel.profileName)
+                        TextField("Your Name", text: $viewModel.userProfile.name)
                             .multilineTextAlignment(.center)
                             .font(.headline)
                             .textFieldStyle(.plain)
@@ -37,7 +37,7 @@ struct ProfileView: View {
                                 .foregroundColor(.blue)
                         }
                         Spacer()
-                        Text("\(viewModel.level)")
+                        Text("\(viewModel.userProfile.level)")
                             .foregroundColor(.secondary)
                     }
 
@@ -49,7 +49,7 @@ struct ProfileView: View {
                                 .foregroundColor(.orange)
                         }
                         Spacer()
-                        Text("\(viewModel.streak) days")
+                        Text("\(viewModel.userProfile.streak) days")
                             .foregroundColor(.secondary)
                     }
 
@@ -61,7 +61,7 @@ struct ProfileView: View {
                                 .foregroundColor(.yellow)
                         }
                         Spacer()
-                        Text("\(viewModel.dailyPoints)")
+                        Text("\(viewModel.userProfile.dailyPoints)")
                             .foregroundColor(.secondary)
                     }
                 }
