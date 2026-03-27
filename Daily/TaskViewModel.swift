@@ -126,7 +126,12 @@ class TaskViewModel: ObservableObject {
             tasks[index].completionHistory[key] = tasks[index].isCompleted
             if tasks[index].isCompleted {
                 tasks[index].pointsHistory[key] = tasks[index].points
-                playTaskCompleteSound()
+                let allDone = todayTasks.filter { $0.id != task.id }.allSatisfy { $0.isCompleted }
+                if allDone {
+                    playAllCompleteSound()
+                } else {
+                    playTaskCompleteSound()
+                }
             } else {
                 tasks[index].pointsHistory.removeValue(forKey: key)
             }
@@ -137,6 +142,12 @@ class TaskViewModel: ObservableObject {
 
     private func playTaskCompleteSound() {
         guard let url = Bundle.main.url(forResource: "taskComplete", withExtension: "mp3") else { return }
+        audioPlayer = try? AVAudioPlayer(contentsOf: url)
+        audioPlayer?.play()
+    }
+
+    private func playAllCompleteSound() {
+        guard let url = Bundle.main.url(forResource: "Complete", withExtension: "mp3") else { return }
         audioPlayer = try? AVAudioPlayer(contentsOf: url)
         audioPlayer?.play()
     }
