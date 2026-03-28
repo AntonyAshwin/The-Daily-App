@@ -52,6 +52,13 @@ class TaskViewModel: ObservableObject {
         return tasks.filter { isTaskApplicable($0, on: today) }
     }
 
+    var sortedTodayTasks: [Task] {
+        todayTasks.sorted {
+            if $0.isCompleted != $1.isCompleted { return !$0.isCompleted }
+            return $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending
+        }
+    }
+
     var recurringTasks: [Task] {
         tasks
             .filter { $0.isEveryday || !$0.recurringDays.isEmpty }

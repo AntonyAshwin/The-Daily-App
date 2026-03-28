@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import Combine
 
 struct ContentView: View {
     @StateObject private var viewModel = TaskViewModel()
@@ -175,11 +176,16 @@ struct ContentView: View {
                     .padding()
                 } else {
                     List {
-                        ForEach(viewModel.todayTasks) { task in
+                        ForEach(viewModel.sortedTodayTasks) { task in
                             TaskRow(task: task, onTap: {
                                 viewModel.toggleTask(task)
                                 if let updatedTask = viewModel.tasks.first(where: { $0.id == task.id }) {
                                     Haptics.taskProgress(isCompleted: updatedTask.isCompleted)
+                                }
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                                    withAnimation(.spring(response: 0.45, dampingFraction: 0.78)) {
+                                        viewModel.objectWillChange.send()
+                                    }
                                 }
                             }, onEdit: {
                                 editingTask = task
