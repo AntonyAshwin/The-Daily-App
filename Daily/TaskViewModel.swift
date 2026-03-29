@@ -574,7 +574,7 @@ class TaskViewModel: ObservableObject {
 
         let rawTaskBonus = max(Int.random(in: 3...10), task.points * 2)
         let taskBonus = scaledRewardRP(rawTaskBonus)
-        if Double.random(in: 0...1) <= 0.80 {
+        if Double.random(in: 0...1) <= 0.95 {
             grantBonusRP(taskBonus)
         } else {
             grantShieldOrFallbackRP(fallbackRP: taskBonus)
