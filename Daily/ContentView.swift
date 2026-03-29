@@ -156,6 +156,33 @@ struct ContentView: View {
                         .padding(.horizontal, 20)
                     }
                     .padding(.vertical, 12)
+
+                    let todayBasePoints = viewModel.basePointsForDate(Date())
+                    let todayRewards = viewModel.rewardSummary(for: Date())
+                    if todayBasePoints > 0 || todayRewards.bonusRP > 0 || todayRewards.shields > 0 {
+                        HStack(spacing: 8) {
+                            Text("\(todayBasePoints) pts")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+
+                            if todayRewards.bonusRP > 0 {
+                                Text("+\(todayRewards.bonusRP) bonus RP")
+                                    .font(.caption)
+                                    .fontWeight(.semibold)
+                                    .foregroundColor(.yellow)
+                            }
+
+                            if todayRewards.shields > 0 {
+                                Label("\(todayRewards.shields)", systemImage: "shield.fill")
+                                    .font(.caption)
+                                    .foregroundColor(.orange)
+                            }
+
+                            Spacer()
+                        }
+                        .padding(.horizontal, 20)
+                        .padding(.bottom, 12)
+                    }
                 }
                 .background(Color(UIColor.secondarySystemBackground))
                 
@@ -232,6 +259,14 @@ struct HistoryView: View {
         Set(viewModel.shieldUsedDates())
     }
 
+    private var selectedDateRewards: (bonusRP: Int, shields: Int) {
+        viewModel.rewardSummary(for: selectedDate)
+    }
+
+    private var selectedDateBasePoints: Int {
+        viewModel.basePointsForDate(selectedDate)
+    }
+
     var body: some View {
         NavigationStack {
             VStack(alignment: .leading, spacing: 16) {
@@ -252,6 +287,30 @@ struct HistoryView: View {
                 Text(selectedDate, style: .date)
                     .font(.headline)
                     .padding(.horizontal, 16)
+
+                if selectedDateBasePoints > 0 || selectedDateRewards.bonusRP > 0 || selectedDateRewards.shields > 0 {
+                    HStack(spacing: 8) {
+                        Text("\(selectedDateBasePoints) pts")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+
+                        if selectedDateRewards.bonusRP > 0 {
+                            Text("+\(selectedDateRewards.bonusRP) bonus RP")
+                                .font(.caption)
+                                .fontWeight(.semibold)
+                                .foregroundColor(.yellow)
+                        }
+
+                        if selectedDateRewards.shields > 0 {
+                            Label("\(selectedDateRewards.shields)", systemImage: "shield.fill")
+                                .font(.caption)
+                                .foregroundColor(.orange)
+                        }
+
+                        Spacer()
+                    }
+                    .padding(.horizontal, 16)
+                }
 
                 if items.isEmpty {
                     VStack(spacing: 10) {

@@ -13,6 +13,8 @@ struct UserProfile: Codable {
     var totalXP: Int = 0
     var streak: Int = 0
     var dailyPoints: Int = 0
+    var rewardBonusRPByDate: [String: Int] = [:] // yyyy-MM-dd -> bonus RP earned from rewards
+    var rewardShieldsByDate: [String: Int] = [:] // yyyy-MM-dd -> shields granted from rewards
     var streakShields: Int = 0
     var shieldCapacity: Int = 1
     var shieldUsedDates: [String] = [] // yyyy-MM-dd dates where shield was used

@@ -44,7 +44,7 @@ class TaskViewModel: ObservableObject {
         loadData()
         checkDailyReset()
         applyTaskStateForToday()
-        updateStreakAndPoints()
+        updateStreakAndPoints(allowLevelUpRewards: false)
     }
 
     var todayTasks: [Task] {
@@ -66,12 +66,26 @@ class TaskViewModel: ObservableObject {
     }
 
     var totalPoints: Int {
-        tasks.reduce(0) { $0 + $1.pointsHistory.values.reduce(0, +) }
+        let taskPoints = tasks.reduce(0) { $0 + $1.pointsHistory.values.reduce(0, +) }
+        let rewardBonus = userProfile.rewardBonusRPByDate.values.reduce(0, +)
+        return taskPoints + rewardBonus
     }
 
     var xpToNextLevel: Int {
         let remainder = userProfile.totalXP % 100
         return remainder == 0 ? 100 : (100 - remainder)
+    }
+
+    func rewardSummary(for date: Date) -> (bonusRP: Int, shields: Int) {
+        let key = dateKey(for: date)
+        return (
+            bonusRP: userProfile.rewardBonusRPByDate[key] ?? 0,
+            shields: userProfile.rewardShieldsByDate[key] ?? 0
+        )
+    }
+
+    func basePointsForDate(_ date: Date) -> Int {
+        tasksForDate(date).reduce(0) { $0 + $1.pointsEarned }
     }
     
     private func shieldCost() -> Int {
@@ -146,6 +160,7 @@ class TaskViewModel: ObservableObject {
                 } else {
                     playTaskCompleteSound()
                 }
+                applyTaskCompletionReward(for: tasks[index])
             } else {
                 tasks[index].pointsHistory.removeValue(forKey: key)
             }
@@ -222,8 +237,9 @@ class TaskViewModel: ObservableObject {
             .sorted()
     }
     
-    func updateStreakAndPoints() {
+    func updateStreakAndPoints(allowLevelUpRewards: Bool = true) {
         let key = dateKey(for: Date())
+        let previousLevel = userProfile.level
 
         // Daily points = sum of snapshot points for today's completed tasks
         userProfile.dailyPoints = todayTasks.reduce(0) { sum, task in
@@ -235,6 +251,15 @@ class TaskViewModel: ObservableObject {
 
         // Level up every 100 XP.
         userProfile.level = 1 + (userProfile.totalXP / 100)
+
+        if allowLevelUpRewards {
+            let levelsGained = max(0, userProfile.level - previousLevel)
+            if levelsGained > 0 {
+                for _ in 0..<levelsGained {
+                    applyLevelUpReward()
+                }
+            }
+        }
 
         // Keep streak aligned with true consecutive perfect days.
         recalculateStreak()
@@ -278,26 +303,8 @@ class TaskViewModel: ObservableObject {
         guard totalPoints >= cost && userProfile.streakShields < userProfile.shieldCapacity else {
             return false
         }
-        
-        // Deduct points by removing from pointsHistory
-        var remainingCost = cost
-        for index in tasks.indices {
-            var daysToRemove: [String] = []
-            for (date, points) in tasks[index].pointsHistory {
-                if remainingCost <= 0 { break }
-                if points <= remainingCost {
-                    remainingCost -= points
-                    daysToRemove.append(date)
-                } else {
-                    daysToRemove.append(date)
-                    remainingCost = 0
-                }
-            }
-            for date in daysToRemove {
-                tasks[index].pointsHistory.removeValue(forKey: date)
-            }
-            if remainingCost <= 0 { break }
-        }
+
+        guard spendRP(cost) else { return false }
         
         userProfile.streakShields += 1
         updateStreakAndPoints()
@@ -306,25 +313,7 @@ class TaskViewModel: ObservableObject {
     
     func upgradeCapacity() -> Bool {
         if userProfile.shieldCapacity == 1 && totalPoints >= 600 {
-            // Deduct 600 points
-            var cost = 600
-            for index in tasks.indices {
-                var daysToRemove: [String] = []
-                for (date, points) in tasks[index].pointsHistory {
-                    if cost <= 0 { break }
-                    if points <= cost {
-                        cost -= points
-                        daysToRemove.append(date)
-                    } else {
-                        daysToRemove.append(date)
-                        cost = 0
-                    }
-                }
-                for date in daysToRemove {
-                    tasks[index].pointsHistory.removeValue(forKey: date)
-                }
-                if cost <= 0 { break }
-            }
+            guard spendRP(600) else { return false }
             
             userProfile.shieldCapacity = 2
             updateStreakAndPoints()
@@ -332,25 +321,7 @@ class TaskViewModel: ObservableObject {
         }
         
         if userProfile.shieldCapacity == 2 && totalPoints >= 1400 {
-            // Deduct 1400 points
-            var cost = 1400
-            for index in tasks.indices {
-                var daysToRemove: [String] = []
-                for (date, points) in tasks[index].pointsHistory {
-                    if cost <= 0 { break }
-                    if points <= cost {
-                        cost -= points
-                        daysToRemove.append(date)
-                    } else {
-                        daysToRemove.append(date)
-                        cost = 0
-                    }
-                }
-                for date in daysToRemove {
-                    tasks[index].pointsHistory.removeValue(forKey: date)
-                }
-                if cost <= 0 { break }
-            }
+            guard spendRP(1400) else { return false }
             
             userProfile.shieldCapacity = 3
             updateStreakAndPoints()
@@ -508,5 +479,78 @@ class TaskViewModel: ObservableObject {
 
     private func dateKey(for date: Date) -> String {
         dateFormatter.string(from: Calendar.current.startOfDay(for: date))
+    }
+
+    private func applyTaskCompletionReward(for task: Task) {
+        // 30% trigger chance on completion.
+        guard Double.random(in: 0...1) <= 0.30 else { return }
+
+        let taskBonus = max(Int.random(in: 3...10), task.points * 2)
+        if Double.random(in: 0...1) <= 0.80 {
+            grantBonusRP(taskBonus)
+        } else {
+            grantShieldOrFallbackRP(fallbackRP: taskBonus)
+        }
+    }
+
+    private func applyLevelUpReward() {
+        // Guaranteed reward on each level gained.
+        let levelUpBonus = Int.random(in: 10...20)
+        if Double.random(in: 0...1) <= 0.70 {
+            grantBonusRP(levelUpBonus)
+        } else {
+            grantShieldOrFallbackRP(fallbackRP: levelUpBonus)
+        }
+    }
+
+    private func grantBonusRP(_ points: Int) {
+        guard points > 0 else { return }
+        let key = dateKey(for: Date())
+        userProfile.rewardBonusRPByDate[key, default: 0] += points
+    }
+
+    private func grantShieldOrFallbackRP(fallbackRP: Int) {
+        if userProfile.streakShields < userProfile.shieldCapacity {
+            userProfile.streakShields += 1
+            let key = dateKey(for: Date())
+            userProfile.rewardShieldsByDate[key, default: 0] += 1
+        } else {
+            grantBonusRP(fallbackRP)
+        }
+    }
+
+    private func spendRP(_ amount: Int) -> Bool {
+        guard amount > 0 else { return true }
+        var remaining = amount
+
+        for key in userProfile.rewardBonusRPByDate.keys.sorted() {
+            guard remaining > 0, let bonus = userProfile.rewardBonusRPByDate[key], bonus > 0 else { continue }
+            let deduction = min(bonus, remaining)
+            let updated = bonus - deduction
+            remaining -= deduction
+            if updated == 0 {
+                userProfile.rewardBonusRPByDate.removeValue(forKey: key)
+            } else {
+                userProfile.rewardBonusRPByDate[key] = updated
+            }
+        }
+
+        for taskIndex in tasks.indices {
+            guard remaining > 0 else { break }
+            let keys = tasks[taskIndex].pointsHistory.keys.sorted()
+            for key in keys {
+                guard remaining > 0, let points = tasks[taskIndex].pointsHistory[key], points > 0 else { continue }
+                let deduction = min(points, remaining)
+                let updated = points - deduction
+                remaining -= deduction
+                if updated == 0 {
+                    tasks[taskIndex].pointsHistory.removeValue(forKey: key)
+                } else {
+                    tasks[taskIndex].pointsHistory[key] = updated
+                }
+            }
+        }
+
+        return remaining == 0
     }
 }
