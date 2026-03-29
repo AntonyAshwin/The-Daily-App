@@ -44,7 +44,7 @@ class TaskViewModel: ObservableObject {
         loadData()
         checkDailyReset()
         applyTaskStateForToday()
-        recalculateStreak()
+        updateStreakAndPoints()
     }
 
     var todayTasks: [Task] {
@@ -67,6 +67,11 @@ class TaskViewModel: ObservableObject {
 
     var totalPoints: Int {
         tasks.reduce(0) { $0 + $1.pointsHistory.values.reduce(0, +) }
+    }
+
+    var xpToNextLevel: Int {
+        let remainder = userProfile.totalXP % 100
+        return remainder == 0 ? 100 : (100 - remainder)
     }
     
     private func shieldCost() -> Int {
@@ -225,13 +230,26 @@ class TaskViewModel: ObservableObject {
             sum + (task.pointsHistory[key] ?? 0)
         }
 
-        // Level up every 100 total points
-        userProfile.level = 1 + (totalPoints / 100)
+        // XP = 2x RP for each completed task entry, independent from RP spend/deduction flows.
+        userProfile.totalXP = totalEarnedPointsForXP() * 2
+
+        // Level up every 100 XP.
+        userProfile.level = 1 + (userProfile.totalXP / 100)
 
         // Keep streak aligned with true consecutive perfect days.
         recalculateStreak()
 
         saveData()
+    }
+
+    private func totalEarnedPointsForXP() -> Int {
+        tasks.reduce(0) { total, task in
+            let earnedForTask = task.completionHistory.reduce(0) { partial, entry in
+                guard entry.value else { return partial }
+                return partial + (task.pointsHistory[entry.key] ?? task.points)
+            }
+            return total + earnedForTask
+        }
     }
     
     func getProgressPercentage() -> Double {

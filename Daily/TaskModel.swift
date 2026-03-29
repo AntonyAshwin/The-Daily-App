@@ -10,6 +10,7 @@ import Foundation
 struct UserProfile: Codable {
     var name: String = "My Name"
     var level: Int = 1
+    var totalXP: Int = 0
     var streak: Int = 0
     var dailyPoints: Int = 0
     var streakShields: Int = 0

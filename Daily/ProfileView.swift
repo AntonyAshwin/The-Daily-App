@@ -43,6 +43,18 @@ struct ProfileView: View {
 
                     HStack {
                         Label {
+                            Text("XP to next")
+                        } icon: {
+                            Image(systemName: "arrow.up.circle.fill")
+                                .foregroundColor(.blue)
+                        }
+                        Spacer()
+                        Text("\(viewModel.xpToNextLevel) XP")
+                            .foregroundColor(.secondary)
+                    }
+
+                    HStack {
+                        Label {
                             Text("Streak")
                         } icon: {
                             Image(systemName: "flame.fill")
