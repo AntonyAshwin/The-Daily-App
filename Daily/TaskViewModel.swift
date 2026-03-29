@@ -34,6 +34,7 @@ class TaskViewModel: ObservableObject {
     private let pointsKey = "dailyPoints" // legacy migration key
     private let profileNameKey = "profileName" // legacy migration key
     private let lastCheckKey = "lastCheckDate"
+    private let recoverySeedKey = "recoverySeed_2026_03_28_applied"
     private let dateFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd"
@@ -42,6 +43,7 @@ class TaskViewModel: ObservableObject {
     
     init() {
         loadData()
+        applyRecoverySeedIfNeeded()
         checkDailyReset()
         applyTaskStateForToday()
         updateStreakAndPoints(allowLevelUpRewards: false)
@@ -71,9 +73,53 @@ class TaskViewModel: ObservableObject {
         return taskPoints + rewardBonus
     }
 
+    var rewardAssets: [RewardAsset] {
+        RewardAsset.catalog
+    }
+
     var xpToNextLevel: Int {
         let remainder = userProfile.totalXP % 100
         return remainder == 0 ? 100 : (100 - remainder)
+    }
+
+    var rewardChanceBonusPercent: Int {
+        Int(((userProfile.rewardChanceMultiplier - 1.0) * 100).rounded())
+    }
+
+    var taskRPBonusPercent: Int {
+        Int(((userProfile.taskRPMultiplier - 1.0) * 100).rounded())
+    }
+
+    var xpBonusPercent: Int {
+        Int(((userProfile.xpMultiplier - 1.0) * 100).rounded())
+    }
+
+    var activeBonusesSummary: String {
+        let chance = "+\(rewardChanceBonusPercent)% reward chance"
+        let taskRP = "+\(taskRPBonusPercent)% RP/task"
+        let xp = "+\(xpBonusPercent)% XP"
+        return [chance, taskRP, xp].joined(separator: ", ")
+    }
+
+    func isAssetOwned(_ asset: RewardAsset) -> Bool {
+        userProfile.ownedRewardAssets.contains(asset.id)
+    }
+
+    func canPurchaseAsset(_ asset: RewardAsset) -> Bool {
+        !isAssetOwned(asset)
+        && userProfile.level >= asset.unlockLevel
+        && totalPoints >= asset.price
+    }
+
+    func purchaseAsset(_ asset: RewardAsset) -> Bool {
+        guard !isAssetOwned(asset) else { return false }
+        guard userProfile.level >= asset.unlockLevel else { return false }
+        guard totalPoints >= asset.price else { return false }
+        guard spendRP(asset.price) else { return false }
+
+        userProfile.ownedRewardAssets.append(asset.id)
+        updateStreakAndPoints()
+        return true
     }
 
     func rewardSummary(for date: Date) -> (bonusRP: Int, shields: Int) {
@@ -153,7 +199,9 @@ class TaskViewModel: ObservableObject {
             let key = dateKey(for: Date())
             tasks[index].completionHistory[key] = tasks[index].isCompleted
             if tasks[index].isCompleted {
-                tasks[index].pointsHistory[key] = tasks[index].points
+                let taskEarnedRP = scaledTaskRP(task.points)
+                tasks[index].pointsHistory[key] = taskEarnedRP
+                tasks[index].xpHistory[key] = scaledXP(fromTaskRP: taskEarnedRP)
                 let allDone = todayTasks.filter { $0.id != task.id }.allSatisfy { $0.isCompleted }
                 if allDone {
                     playAllCompleteSound()
@@ -163,6 +211,7 @@ class TaskViewModel: ObservableObject {
                 applyTaskCompletionReward(for: tasks[index])
             } else {
                 tasks[index].pointsHistory.removeValue(forKey: key)
+                tasks[index].xpHistory.removeValue(forKey: key)
             }
             updateStreakAndPoints()
             saveData()
@@ -247,7 +296,7 @@ class TaskViewModel: ObservableObject {
         }
 
         // XP = 2x RP for each completed task entry, independent from RP spend/deduction flows.
-        userProfile.totalXP = totalEarnedPointsForXP() * 2
+        userProfile.totalXP = totalEarnedXP()
 
         // Level up every 100 XP.
         userProfile.level = 1 + (userProfile.totalXP / 100)
@@ -267,13 +316,17 @@ class TaskViewModel: ObservableObject {
         saveData()
     }
 
-    private func totalEarnedPointsForXP() -> Int {
+    private func totalEarnedXP() -> Int {
         tasks.reduce(0) { total, task in
-            let earnedForTask = task.completionHistory.reduce(0) { partial, entry in
+            let xpForTask = task.completionHistory.reduce(0) { partial, entry in
                 guard entry.value else { return partial }
-                return partial + (task.pointsHistory[entry.key] ?? task.points)
+                if let storedXP = task.xpHistory[entry.key] {
+                    return partial + storedXP
+                }
+                let fallbackRP = task.pointsHistory[entry.key] ?? task.points
+                return partial + (fallbackRP * 2)
             }
-            return total + earnedForTask
+            return total + xpForTask
         }
     }
     
@@ -384,6 +437,39 @@ class TaskViewModel: ObservableObject {
         UserDefaults.standard.set(Date(), forKey: lastCheckKey)
     }
 
+    private func applyRecoverySeedIfNeeded() {
+        // One-time safety net: restore a minimal snapshot only when data is empty.
+        guard !UserDefaults.standard.bool(forKey: recoverySeedKey) else { return }
+        guard tasks.isEmpty else { return }
+        guard userProfile.totalXP == 0 && userProfile.rewardBonusRPByDate.isEmpty else { return }
+
+        var components = DateComponents()
+        components.year = 2026
+        components.month = 3
+        components.day = 28
+        let calendar = Calendar.current
+        guard let recoveryDate = calendar.date(from: components) else { return }
+
+        let key = dateKey(for: recoveryDate)
+
+        var recoveredTask = Task(title: "Recovered Progress (28 Mar)")
+        recoveredTask.createdAt = recoveryDate
+        recoveredTask.isEveryday = false
+        recoveredTask.recurringDays = []
+        recoveredTask.completionHistory[key] = true
+        recoveredTask.pointsHistory[key] = 46
+        recoveredTask.xpHistory[key] = 92
+        recoveredTask.isCompleted = false
+
+        tasks = [recoveredTask]
+        userProfile.level = 1
+        userProfile.totalXP = 92
+        userProfile.dailyPoints = 0
+
+        UserDefaults.standard.set(true, forKey: recoverySeedKey)
+        saveData()
+    }
+
     private func applyTaskStateForToday() {
         let today = Date()
         let key = dateKey(for: today)
@@ -483,9 +569,11 @@ class TaskViewModel: ObservableObject {
 
     private func applyTaskCompletionReward(for task: Task) {
         // 30% trigger chance on completion.
-        guard Double.random(in: 0...1) <= 0.30 else { return }
+        let triggerChance = min(1.0, 0.30 * userProfile.rewardChanceMultiplier)
+        guard Double.random(in: 0...1) <= triggerChance else { return }
 
-        let taskBonus = max(Int.random(in: 3...10), task.points * 2)
+        let rawTaskBonus = max(Int.random(in: 3...10), task.points * 2)
+        let taskBonus = scaledRewardRP(rawTaskBonus)
         if Double.random(in: 0...1) <= 0.80 {
             grantBonusRP(taskBonus)
         } else {
@@ -495,7 +583,7 @@ class TaskViewModel: ObservableObject {
 
     private func applyLevelUpReward() {
         // Guaranteed reward on each level gained.
-        let levelUpBonus = Int.random(in: 10...20)
+        let levelUpBonus = scaledRewardRP(Int.random(in: 10...20))
         if Double.random(in: 0...1) <= 0.70 {
             grantBonusRP(levelUpBonus)
         } else {
@@ -552,5 +640,17 @@ class TaskViewModel: ObservableObject {
         }
 
         return remaining == 0
+    }
+
+    private func scaledTaskRP(_ baseRP: Int) -> Int {
+        max(1, Int((Double(baseRP) * userProfile.taskRPMultiplier).rounded()))
+    }
+
+    private func scaledXP(fromTaskRP taskRP: Int) -> Int {
+        max(1, Int((Double(taskRP * 2) * userProfile.xpMultiplier).rounded()))
+    }
+
+    private func scaledRewardRP(_ baseRP: Int) -> Int {
+        max(1, Int((Double(baseRP) * userProfile.rewardRPMultiplier).rounded()))
     }
 }

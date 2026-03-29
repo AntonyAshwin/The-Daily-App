@@ -38,7 +38,10 @@ private struct LottieViewRepresentable: UIViewRepresentable {
         let container = UIView(frame: .zero)
         container.backgroundColor = .clear
 
-        let animationView = LottieAnimationView(name: animationName, bundle: .main)
+        let animation =
+            LottieAnimation.named(animationName, bundle: .main)
+            ?? LottieAnimation.named(animationName, bundle: .main, subdirectory: "Rewards")
+        let animationView = LottieAnimationView(animation: animation)
         animationView.translatesAutoresizingMaskIntoConstraints = false
         animationView.contentMode = .scaleAspectFit
         animationView.loopMode = .loop

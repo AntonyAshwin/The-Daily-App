@@ -15,6 +15,7 @@ struct UserProfile: Codable {
     var dailyPoints: Int = 0
     var rewardBonusRPByDate: [String: Int] = [:] // yyyy-MM-dd -> bonus RP earned from rewards
     var rewardShieldsByDate: [String: Int] = [:] // yyyy-MM-dd -> shields granted from rewards
+    var ownedRewardAssets: [String] = [] // Purchased reward asset ids
     var streakShields: Int = 0
     var shieldCapacity: Int = 1
     var shieldUsedDates: [String] = [] // yyyy-MM-dd dates where shield was used
@@ -31,6 +32,7 @@ struct Task: Identifiable, Codable {
     var completionHistory: [String: Bool] = [:] // yyyy-MM-dd -> completion state
     var points: Int = 1
     var pointsHistory: [String: Int] = [:] // yyyy-MM-dd -> points earned that day
+    var xpHistory: [String: Int] = [:] // yyyy-MM-dd -> xp earned that day
     
     var recurrenceText: String {
         if isEveryday {
