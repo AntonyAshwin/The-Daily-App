@@ -568,8 +568,8 @@ class TaskViewModel: ObservableObject {
     }
 
     private func applyTaskCompletionReward(for task: Task) {
-        // 15% trigger chance on completion to keep random rewards rarer.
-        let triggerChance = min(1.0, 0.15 * userProfile.rewardChanceMultiplier)
+        // 5% trigger chance on completion to keep random rewards very rare.
+        let triggerChance = min(1.0, 0.05 * userProfile.rewardChanceMultiplier)
         guard Double.random(in: 0...1) <= triggerChance else { return }
 
         let rawTaskBonus = max(Int.random(in: 3...10), task.points)

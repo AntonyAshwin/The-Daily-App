@@ -31,7 +31,7 @@ struct RewardAsset: Identifiable {
             animationName: "Adobe",
             unlockLevel: 2,
             price: 100,
-            bonusText: "+10% reward chance",
+            bonusText: "+1% reward chance",
             bonusKind: .both,
             stageText: "Early Game",
             description: "First exciting purchase that helps trigger more rewards early."
@@ -53,7 +53,7 @@ struct RewardAsset: Identifiable {
             animationName: "meta",
             unlockLevel: 8,
             price: 500,
-            bonusText: "+20% reward chance",
+            bonusText: "+2% reward chance",
             bonusKind: .both,
             stageText: "Mid Game",
             description: "Makes your random reward system feel more active."
@@ -75,7 +75,7 @@ struct RewardAsset: Identifiable {
             animationName: "google",
             unlockLevel: 18,
             price: 1500,
-            bonusText: "+40% all rewards",
+            bonusText: "+4% reward chance, +40% RP + XP",
             bonusKind: .both,
             stageText: "End Game",
             description: "Massive multiplier across your progression rewards."
@@ -86,9 +86,9 @@ struct RewardAsset: Identifiable {
 extension UserProfile {
     var rewardChanceMultiplier: Double {
         var multiplier = 1.0
-        if ownedRewardAssets.contains("adobe") { multiplier += 0.10 }
-        if ownedRewardAssets.contains("meta") { multiplier += 0.20 }
-        if ownedRewardAssets.contains("google") { multiplier += 0.40 }
+        if ownedRewardAssets.contains("adobe") { multiplier += 0.01 }
+        if ownedRewardAssets.contains("meta") { multiplier += 0.02 }
+        if ownedRewardAssets.contains("google") { multiplier += 0.04 }
         return multiplier
     }
 
