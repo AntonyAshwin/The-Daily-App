@@ -17,18 +17,6 @@ struct ContentView: View {
     
     var body: some View {
         TabView(selection: $selectedTab) {
-            homeView
-                .tag(0)
-                .tabItem {
-                    Label("Home", systemImage: "house.fill")
-                }
-
-            HistoryView(viewModel: viewModel, selectedDate: $selectedHistoryDate)
-                .tag(1)
-                .tabItem {
-                    Label("History", systemImage: "calendar")
-                }
-
             RecurringTasksView(
                 viewModel: viewModel,
                 onEdit: { task in
@@ -44,6 +32,18 @@ struct ContentView: View {
                 .tag(2)
                 .tabItem {
                     Label("Recurring", systemImage: "repeat")
+                }
+
+            HistoryView(viewModel: viewModel, selectedDate: $selectedHistoryDate)
+                .tag(1)
+                .tabItem {
+                    Label("History", systemImage: "calendar")
+                }
+
+            homeView
+                .tag(0)
+                .tabItem {
+                    Label("Home", systemImage: "house.fill")
                 }
 
             ProfileView(viewModel: viewModel)
