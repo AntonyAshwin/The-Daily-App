@@ -70,7 +70,7 @@ class TaskViewModel: ObservableObject {
     var totalPoints: Int {
         let taskPoints = tasks.reduce(0) { $0 + $1.pointsHistory.values.reduce(0, +) }
         let rewardBonus = userProfile.rewardBonusRPByDate.values.reduce(0, +)
-        return taskPoints + rewardBonus
+        return max(0, taskPoints + rewardBonus - userProfile.totalSpentRP)
     }
 
     var rewardAssets: [RewardAsset] {
@@ -609,37 +609,9 @@ class TaskViewModel: ObservableObject {
 
     private func spendRP(_ amount: Int) -> Bool {
         guard amount > 0 else { return true }
-        var remaining = amount
-
-        for key in userProfile.rewardBonusRPByDate.keys.sorted() {
-            guard remaining > 0, let bonus = userProfile.rewardBonusRPByDate[key], bonus > 0 else { continue }
-            let deduction = min(bonus, remaining)
-            let updated = bonus - deduction
-            remaining -= deduction
-            if updated == 0 {
-                userProfile.rewardBonusRPByDate.removeValue(forKey: key)
-            } else {
-                userProfile.rewardBonusRPByDate[key] = updated
-            }
-        }
-
-        for taskIndex in tasks.indices {
-            guard remaining > 0 else { break }
-            let keys = tasks[taskIndex].pointsHistory.keys.sorted()
-            for key in keys {
-                guard remaining > 0, let points = tasks[taskIndex].pointsHistory[key], points > 0 else { continue }
-                let deduction = min(points, remaining)
-                let updated = points - deduction
-                remaining -= deduction
-                if updated == 0 {
-                    tasks[taskIndex].pointsHistory.removeValue(forKey: key)
-                } else {
-                    tasks[taskIndex].pointsHistory[key] = updated
-                }
-            }
-        }
-
-        return remaining == 0
+        guard totalPoints >= amount else { return false }
+        userProfile.totalSpentRP += amount
+        return true
     }
 
     private func scaledTaskRP(_ baseRP: Int) -> Int {

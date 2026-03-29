@@ -19,6 +19,7 @@ struct UserProfile: Codable {
     var streakShields: Int = 0
     var shieldCapacity: Int = 1
     var shieldUsedDates: [String] = [] // yyyy-MM-dd dates where shield was used
+    var totalSpentRP: Int = 0 // Cumulative RP spent on shop purchases; never modifies history
 }
 
 struct Task: Identifiable, Codable {
