@@ -572,7 +572,7 @@ class TaskViewModel: ObservableObject {
         let triggerChance = min(1.0, 0.30 * userProfile.rewardChanceMultiplier)
         guard Double.random(in: 0...1) <= triggerChance else { return }
 
-        let rawTaskBonus = max(Int.random(in: 3...10), task.points * 2)
+        let rawTaskBonus = max(Int.random(in: 3...10), task.points)
         let taskBonus = scaledRewardRP(rawTaskBonus)
         if Double.random(in: 0...1) <= 0.95 {
             grantBonusRP(taskBonus)
