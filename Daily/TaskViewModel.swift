@@ -49,7 +49,7 @@ class TaskViewModel: ObservableObject {
 
     var todayTasks: [Task] {
         let today = Date()
-        return tasks.filter { isTaskApplicable($0, on: today) }
+        return tasks.filter { isTaskActive($0) && isTaskApplicable($0, on: today) }
     }
 
     var sortedTodayTasks: [Task] {
@@ -61,7 +61,7 @@ class TaskViewModel: ObservableObject {
 
     var recurringTasks: [Task] {
         tasks
-            .filter { $0.isEveryday || !$0.recurringDays.isEmpty }
+            .filter { isTaskActive($0) && ($0.isEveryday || !$0.recurringDays.isEmpty) }
             .sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
     }
 
@@ -113,7 +113,9 @@ class TaskViewModel: ObservableObject {
     }
     
     func deleteTask(at index: Int) {
-        tasks.remove(at: index)
+        guard tasks.indices.contains(index) else { return }
+        tasks[index].deletedAt = Date()
+        tasks[index].isCompleted = false
         updateStreakAndPoints()
         saveData()
     }
@@ -412,9 +414,15 @@ class TaskViewModel: ObservableObject {
         let calendar = Calendar.current
         let day = calendar.startOfDay(for: date)
         let createdDay = calendar.startOfDay(for: task.createdAt)
+        let deletedDay = task.deletedAt.map { calendar.startOfDay(for: $0) }
 
         // A task should never be shown before it exists.
         guard day >= createdDay else {
+            return false
+        }
+
+        // Deleted tasks still exist for history up to their deletion day.
+        if let deletedDay, day > deletedDay {
             return false
         }
 
@@ -428,6 +436,10 @@ class TaskViewModel: ObservableObject {
         }
 
         return calendar.isDate(task.createdAt, inSameDayAs: date)
+    }
+
+    private func isTaskActive(_ task: Task) -> Bool {
+        task.deletedAt == nil
     }
 
     private func isPerfectDay(_ date: Date) -> Bool {

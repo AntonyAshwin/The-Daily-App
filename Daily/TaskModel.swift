@@ -22,6 +22,7 @@ struct Task: Identifiable, Codable {
     var title: String
     var isCompleted: Bool = false
     var createdAt = Date()
+    var deletedAt: Date? = nil
     var recurringDays: [Int] = [] // 0-6 for Sun-Sat, empty = no recurrence
     var isEveryday: Bool = false
     var completionHistory: [String: Bool] = [:] // yyyy-MM-dd -> completion state
