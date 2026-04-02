@@ -11,7 +11,7 @@ import Combine
 struct ContentView: View {
     @StateObject private var viewModel = TaskViewModel()
     @State private var showAddTask = false
-    @State private var editingTask: Task? = nil
+    @State private var editingTask: RecurringTask? = nil
     @State private var selectedHistoryDate = Date()
     @State private var selectedTab = 0
     
@@ -24,7 +24,7 @@ struct ContentView: View {
                     showAddTask = true
                 },
                 onDelete: { task in
-                    if let index = viewModel.tasks.firstIndex(where: { $0.id == task.id }) {
+                    if let index = viewModel.recurringTasks.firstIndex(where: { $0.id == task.id }) {
                         viewModel.deleteTask(at: index)
                     }
                 }
@@ -187,7 +187,7 @@ struct ContentView: View {
                 .background(Color(UIColor.secondarySystemBackground))
                 
                 // Tasks List
-                if viewModel.todayTasks.isEmpty {
+                if viewModel.sortedTodayDisplays.isEmpty {
                     VStack(spacing: 16) {
                         Image(systemName: "checkmark.circle")
                             .font(.system(size: 60))
@@ -203,22 +203,21 @@ struct ContentView: View {
                     .padding()
                 } else {
                     List {
-                        ForEach(viewModel.sortedTodayTasks) { task in
-                            TaskRow(task: task, onTap: {
-                                viewModel.toggleTask(task)
-                                if let updatedTask = viewModel.tasks.first(where: { $0.id == task.id }) {
-                                    Haptics.taskProgress(isCompleted: updatedTask.isCompleted)
-                                }
+                        ForEach(viewModel.sortedTodayDisplays) { display in
+                            TaskRow(task: display, onTap: {
+                                viewModel.toggleTask(display.entry)
+                                let isDone = viewModel.dailyEntries.first(where: { $0.id == display.entry.id })?.isDone ?? false
+                                Haptics.taskProgress(isCompleted: isDone)
                                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
                                     withAnimation(.spring(response: 0.45, dampingFraction: 0.78)) {
                                         viewModel.objectWillChange.send()
                                     }
                                 }
                             }, onEdit: {
-                                editingTask = task
+                                editingTask = display.task
                                 showAddTask = true
                             }, onDelete: {
-                                if let index = viewModel.tasks.firstIndex(where: { $0.id == task.id }) {
+                                if let index = viewModel.recurringTasks.firstIndex(where: { $0.id == display.task.id }) {
                                     viewModel.deleteTask(at: index)
                                 }
                             })
@@ -353,13 +352,13 @@ struct HistoryView: View {
 
 struct RecurringTasksView: View {
     @ObservedObject var viewModel: TaskViewModel
-    let onEdit: (Task) -> Void
-    let onDelete: (Task) -> Void
+    let onEdit: (RecurringTask) -> Void
+    let onDelete: (RecurringTask) -> Void
 
     var body: some View {
         NavigationStack {
             Group {
-                if viewModel.recurringTasks.isEmpty {
+                if viewModel.recurringTaskDefinitions.isEmpty {
                     VStack(spacing: 12) {
                         Image(systemName: "repeat")
                             .font(.system(size: 42))
@@ -375,7 +374,7 @@ struct RecurringTasksView: View {
                     .padding()
                 } else {
                     List {
-                        ForEach(viewModel.recurringTasks) { task in
+                        ForEach(viewModel.recurringTaskDefinitions) { task in
                             HStack {
                                 VStack(alignment: .leading, spacing: 4) {
                                     Text(task.title)
@@ -615,7 +614,7 @@ private extension Calendar {
 }
 
 struct TaskRow: View {
-    let task: Task
+    let task: TodayTaskDisplay
     let onTap: () -> Void
     let onEdit: () -> Void
     let onDelete: () -> Void
@@ -664,9 +663,9 @@ struct TaskRow: View {
 
 struct AddTaskSheet: View {
     @Binding var isPresented: Bool
-    @Binding var editingTask: Task?
+    @Binding var editingTask: RecurringTask?
     let onAdd: (String, Bool, Set<Int>, Int) -> Void
-    let onUpdate: (Task) -> Void
+    let onUpdate: (RecurringTask) -> Void
     @State private var title = ""
     @State private var isEveryday = false
     @State private var selectedDays: Set<Int> = []

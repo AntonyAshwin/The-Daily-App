@@ -9,6 +9,20 @@ import SwiftUI
 import Combine
 import AVFoundation
 
+// MARK: - Display struct for today's task list
+
+struct TodayTaskDisplay: Identifiable {
+    let entry: DailyTaskEntry
+    let task: RecurringTask
+    var id: UUID { entry.id }
+    var title: String { task.title }
+    var points: Int { task.points }
+    var isCompleted: Bool { entry.isDone }
+    var recurrenceText: String { task.recurrenceText }
+}
+
+// MARK: - History item (unchanged shape, consumed by HistoryView)
+
 struct HistoryTaskItem: Identifiable {
     let id: UUID
     let title: String
@@ -16,66 +30,75 @@ struct HistoryTaskItem: Identifiable {
     let pointsEarned: Int
 }
 
+// MARK: - ViewModel
+
 class TaskViewModel: ObservableObject {
     private var audioPlayer: AVAudioPlayer?
-    @Published var tasks: [Task] = []
+
+    @Published var recurringTasks: [RecurringTask] = []
+    @Published var dailyEntries: [DailyTaskEntry] = []
     @Published var userProfile: UserProfile = UserProfile() {
-        didSet {
-            saveData()
-        }
+        didSet { saveData() }
     }
-    
     @Published var shieldUsedThisRound = false
-    
-    private let tasksKey = "tasks"
-    private let userProfileKey = "userProfile"
-    private let levelKey = "level" // legacy migration key
-    private let streakKey = "streak" // legacy migration key
-    private let pointsKey = "dailyPoints" // legacy migration key
-    private let profileNameKey = "profileName" // legacy migration key
-    private let lastCheckKey = "lastCheckDate"
-    private let recoverySeedKey = "recoverySeed_2026_03_28_applied"
+
+    // Persistence keys
+    private let recurringTasksKey = "recurringTasks_v2"
+    private let dailyEntriesKey   = "dailyTaskEntries_v2"
+    private let userProfileKey    = "userProfile"
+    private let migrationV2Key    = "migration_v2_completed"
+    private let recoverySeedKey   = "recoverySeed_2026_03_28_applied"
+
+    // Legacy keys (profile migration only)
+    private let levelKey       = "level"
+    private let streakKey      = "streak"
+    private let pointsKey      = "dailyPoints"
+    private let profileNameKey = "profileName"
+
     private let dateFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd"
-        return formatter
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd"
+        return f
     }()
-    
+
     init() {
         loadData()
+        migrateV2IfNeeded()
         applyRecoverySeedIfNeeded()
-        checkDailyReset()
-        applyTaskStateForToday()
+        backfillAllTasks()
         updateStreakAndPoints(allowLevelUpRewards: false)
     }
 
-    var todayTasks: [Task] {
-        let today = Date()
-        return tasks.filter { isTaskActive($0) && isTaskApplicable($0, on: today) }
+    // MARK: - Computed properties
+
+    var sortedTodayDisplays: [TodayTaskDisplay] {
+        let key = dateKey(for: Date())
+        return dailyEntries
+            .filter { $0.date == key }
+            .compactMap { entry -> TodayTaskDisplay? in
+                guard let task = recurringTasks.first(where: { $0.id == entry.taskID }),
+                      task.isActive else { return nil }
+                return TodayTaskDisplay(entry: entry, task: task)
+            }
+            .sorted {
+                if $0.isCompleted != $1.isCompleted { return !$0.isCompleted }
+                return $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending
+            }
     }
 
-    var sortedTodayTasks: [Task] {
-        todayTasks.sorted {
-            if $0.isCompleted != $1.isCompleted { return !$0.isCompleted }
-            return $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending
-        }
-    }
-
-    var recurringTasks: [Task] {
-        tasks
-            .filter { isTaskActive($0) && ($0.isEveryday || !$0.recurringDays.isEmpty) }
+    var recurringTaskDefinitions: [RecurringTask] {
+        recurringTasks
+            .filter { $0.isActive && ($0.isEveryday || !$0.recurringDays.isEmpty) }
             .sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
     }
 
     var totalPoints: Int {
-        let taskPoints = tasks.reduce(0) { $0 + $1.pointsHistory.values.reduce(0, +) }
+        let taskPoints = dailyEntries.reduce(0) { $0 + $1.pointsEarned }
         let rewardBonus = userProfile.rewardBonusRPByDate.values.reduce(0, +)
         return max(0, taskPoints + rewardBonus - userProfile.totalSpentRP)
     }
 
-    var rewardAssets: [RewardAsset] {
-        RewardAsset.catalog
-    }
+    var rewardAssets: [RewardAsset] { RewardAsset.catalog }
 
     var xpToNextLevel: Int {
         let remainder = userProfile.totalXP % 100
@@ -101,14 +124,87 @@ class TaskViewModel: ObservableObject {
         return [chance, taskRP, xp].joined(separator: ", ")
     }
 
+    var canBuyShield: Bool {
+        let cost = shieldCost()
+        return totalPoints >= cost && userProfile.streakShields < userProfile.shieldCapacity
+    }
+
+    var shieldsDisplay: String { "\(userProfile.streakShields)/\(userProfile.shieldCapacity)" }
+
+    var shieldCostDisplay: Int { shieldCost() }
+
+    var nextUpgradeCost: Int {
+        userProfile.shieldCapacity == 1 ? 600 : (userProfile.shieldCapacity == 2 ? 1400 : 0)
+    }
+
+    var canUpgradeCapacity: Bool {
+        (userProfile.shieldCapacity == 1 && totalPoints >= 600) ||
+        (userProfile.shieldCapacity == 2 && totalPoints >= 1400)
+    }
+
+    // MARK: - Task management
+
+    func addTask(_ title: String, isEveryday: Bool = false, recurringDays: Set<Int> = [], points: Int = 1) {
+        var newTask = RecurringTask(title: title)
+        newTask.points = points
+        newTask.isEveryday = isEveryday
+        newTask.recurringDays = isEveryday ? Array(0...6) : Array(recurringDays)
+        recurringTasks.append(newTask)
+        backfill(task: newTask, upTo: Date())
+        saveData()
+    }
+
+    func deleteTask(at index: Int) {
+        guard recurringTasks.indices.contains(index) else { return }
+        recurringTasks[index].deletedAt = Date()
+        updateStreakAndPoints()
+        saveData()
+    }
+
+    func updateTask(_ task: RecurringTask) {
+        if let index = recurringTasks.firstIndex(where: { $0.id == task.id }) {
+            recurringTasks[index] = task
+            backfill(task: task, upTo: Date())
+            updateStreakAndPoints()
+            saveData()
+        }
+    }
+
+    func toggleTask(_ entry: DailyTaskEntry) {
+        guard let idx = dailyEntries.firstIndex(where: { $0.id == entry.id }) else { return }
+        guard let task = recurringTasks.first(where: { $0.id == entry.taskID }) else { return }
+
+        dailyEntries[idx].isDone.toggle()
+
+        if dailyEntries[idx].isDone {
+            let earnedRP = scaledTaskRP(task.points)
+            let earnedXP = scaledXP(fromTaskRP: earnedRP)
+            dailyEntries[idx].pointsEarned = earnedRP
+            dailyEntries[idx].xpEarned = earnedXP
+
+            let todayKey = dateKey(for: Date())
+            let allDone = dailyEntries
+                .filter { $0.date == todayKey && $0.id != entry.id }
+                .allSatisfy { $0.isDone }
+            if allDone { playAllCompleteSound() } else { playTaskCompleteSound() }
+            applyTaskCompletionReward(for: task)
+        } else {
+            dailyEntries[idx].pointsEarned = 0
+            dailyEntries[idx].xpEarned = 0
+        }
+
+        updateStreakAndPoints()
+        saveData()
+    }
+
+    // MARK: - Shop
+
     func isAssetOwned(_ asset: RewardAsset) -> Bool {
         userProfile.ownedRewardAssets.contains(asset.id)
     }
 
     func canPurchaseAsset(_ asset: RewardAsset) -> Bool {
-        !isAssetOwned(asset)
-        && userProfile.level >= asset.unlockLevel
-        && totalPoints >= asset.price
+        !isAssetOwned(asset) && userProfile.level >= asset.unlockLevel && totalPoints >= asset.price
     }
 
     func purchaseAsset(_ asset: RewardAsset) -> Bool {
@@ -116,11 +212,37 @@ class TaskViewModel: ObservableObject {
         guard userProfile.level >= asset.unlockLevel else { return false }
         guard totalPoints >= asset.price else { return false }
         guard spendRP(asset.price) else { return false }
-
         userProfile.ownedRewardAssets.append(asset.id)
         updateStreakAndPoints()
         return true
     }
+
+    func buyShield() -> Bool {
+        let cost = shieldCost()
+        guard totalPoints >= cost && userProfile.streakShields < userProfile.shieldCapacity else { return false }
+        guard spendRP(cost) else { return false }
+        userProfile.streakShields += 1
+        updateStreakAndPoints()
+        return true
+    }
+
+    func upgradeCapacity() -> Bool {
+        if userProfile.shieldCapacity == 1 && totalPoints >= 600 {
+            guard spendRP(600) else { return false }
+            userProfile.shieldCapacity = 2
+            updateStreakAndPoints()
+            return true
+        }
+        if userProfile.shieldCapacity == 2 && totalPoints >= 1400 {
+            guard spendRP(1400) else { return false }
+            userProfile.shieldCapacity = 3
+            updateStreakAndPoints()
+            return true
+        }
+        return false
+    }
+
+    // MARK: - History & Analytics
 
     func rewardSummary(for date: Date) -> (bonusRP: Int, shields: Int) {
         let key = dateKey(for: date)
@@ -133,274 +255,109 @@ class TaskViewModel: ObservableObject {
     func basePointsForDate(_ date: Date) -> Int {
         tasksForDate(date).reduce(0) { $0 + $1.pointsEarned }
     }
-    
-    private func shieldCost() -> Int {
-        switch userProfile.streakShields {
-        case 0: return 150  // 1st shield
-        case 1: return 250  // 2nd shield
-        case 2: return 400  // 3rd shield
-        default: return 0   // Can't buy more
-        }
-    }
-    
-    var canBuyShield: Bool {
-        let cost = shieldCost()
-        return totalPoints >= cost && userProfile.streakShields < userProfile.shieldCapacity
-    }
-    
-    var shieldsDisplay: String {
-        "\(userProfile.streakShields)/\(userProfile.shieldCapacity)"
-    }
-    
-    var shieldCostDisplay: Int {
-        shieldCost()
-    }
-    
-    var nextUpgradeCost: Int {
-        userProfile.shieldCapacity == 1 ? 600 : (userProfile.shieldCapacity == 2 ? 1400 : 0)
-    }
-    
-    var canUpgradeCapacity: Bool {
-        (userProfile.shieldCapacity == 1 && totalPoints >= 600) ||
-        (userProfile.shieldCapacity == 2 && totalPoints >= 1400)
-    }
-    
-    func addTask(_ title: String, isEveryday: Bool = false, recurringDays: Set<Int> = [], points: Int = 1) {
-        var newTask = Task(title: title)
-        newTask.points = points
-        newTask.isEveryday = isEveryday
-        newTask.recurringDays = isEveryday ? Array(0...6) : Array(recurringDays)
-        if isTaskApplicable(newTask, on: Date()) {
-            newTask.completionHistory[dateKey(for: Date())] = false
-        }
-        tasks.append(newTask)
-        saveData()
-    }
-    
-    func deleteTask(at index: Int) {
-        guard tasks.indices.contains(index) else { return }
-        tasks[index].deletedAt = Date()
-        tasks[index].isCompleted = false
-        updateStreakAndPoints()
-        saveData()
-    }
-    
-    func updateTask(_ task: Task) {
-        if let index = tasks.firstIndex(where: { $0.id == task.id }) {
-            tasks[index] = task
-            updateStreakAndPoints()
-            saveData()
-        }
-    }
-    
-    func toggleTask(_ task: Task) {
-        if let index = tasks.firstIndex(where: { $0.id == task.id }) {
-            tasks[index].isCompleted.toggle()
-            let key = dateKey(for: Date())
-            tasks[index].completionHistory[key] = tasks[index].isCompleted
-            if tasks[index].isCompleted {
-                let taskEarnedRP = scaledTaskRP(task.points)
-                tasks[index].pointsHistory[key] = taskEarnedRP
-                tasks[index].xpHistory[key] = scaledXP(fromTaskRP: taskEarnedRP)
-                let allDone = todayTasks.filter { $0.id != task.id }.allSatisfy { $0.isCompleted }
-                if allDone {
-                    playAllCompleteSound()
-                } else {
-                    playTaskCompleteSound()
-                }
-                applyTaskCompletionReward(for: tasks[index])
-            } else {
-                tasks[index].pointsHistory.removeValue(forKey: key)
-                tasks[index].xpHistory.removeValue(forKey: key)
-            }
-            updateStreakAndPoints()
-            saveData()
-        }
-    }
-
-    private func playTaskCompleteSound() {
-        guard let url = Bundle.main.url(forResource: "taskComplete", withExtension: "mp3") else { return }
-        audioPlayer = try? AVAudioPlayer(contentsOf: url)
-        audioPlayer?.play()
-    }
-
-    private func playAllCompleteSound() {
-        guard let url = Bundle.main.url(forResource: "Complete", withExtension: "mp3") else { return }
-        audioPlayer = try? AVAudioPlayer(contentsOf: url)
-        audioPlayer?.play()
-    }
 
     func tasksForDate(_ date: Date) -> [HistoryTaskItem] {
         let key = dateKey(for: date)
-
-        return tasks.compactMap { task in
-            guard isTaskApplicable(task, on: date) else {
-                return nil
+        return dailyEntries
+            .filter { $0.date == key }
+            .compactMap { entry -> HistoryTaskItem? in
+                guard let task = recurringTasks.first(where: { $0.id == entry.taskID }) else { return nil }
+                return HistoryTaskItem(
+                    id: entry.id,
+                    title: task.title,
+                    isCompleted: entry.isDone,
+                    pointsEarned: entry.pointsEarned
+                )
             }
+            .sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+    }
 
-            return HistoryTaskItem(
-                id: task.id,
-                title: task.title,
-                isCompleted: task.completionHistory[key] ?? false,
-                pointsEarned: task.pointsHistory[key] ?? 0
-            )
+    func getProgressPercentage() -> Double {
+        let displays = sortedTodayDisplays
+        guard !displays.isEmpty else { return 0 }
+        let completed = displays.filter { $0.isCompleted }.count
+        return Double(completed) / Double(displays.count)
+    }
+
+    func getProgressColor() -> Color {
+        let progress = getProgressPercentage()
+        if progress <= 0.25 {
+            return Color(red: 1.0, green: 0.27, blue: 0.41)
+        } else if progress <= 0.5 {
+            return Color(red: 1.0, green: 0.65, blue: 0.2)
+        } else if progress <= 0.75 {
+            return Color(red: 1.0, green: 0.92, blue: 0.23)
+        } else {
+            return Color(red: 0.0, green: 0.816, blue: 0.518)
         }
-        .sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
     }
 
     func currentStreakDates(endingAt endDate: Date = Date()) -> [Date] {
         let calendar = Calendar.current
         let endDay = calendar.startOfDay(for: endDate)
-
-        // Grace mode: if today is not perfect yet, show streak up to yesterday.
         let effectiveEndDay: Date
         if isPerfectDay(endDay) {
             effectiveEndDay = endDay
         } else {
             effectiveEndDay = calendar.date(byAdding: .day, value: -1, to: endDay) ?? endDay
         }
-
         return consecutivePerfectDates(endingAt: effectiveEndDay)
     }
-    
+
     func historicalStreakDates() -> [Date] {
-        // Return all dates where at least one task earned points (visible in history)
-        let dateFormatter = self.dateFormatter
-        var streakDates = Set<String>()
-        
-        for task in tasks {
-            for (dateStr, _) in task.pointsHistory {
-                streakDates.insert(dateStr)
-            }
-        }
-        
-        return streakDates
+        let datesWithPoints = Set(dailyEntries.filter { $0.pointsEarned > 0 }.map { $0.date })
+        return datesWithPoints
             .compactMap { dateFormatter.date(from: $0) }
             .sorted()
     }
-    
+
     func shieldUsedDates() -> [Date] {
-        // Return dates where shield was used
         return userProfile.shieldUsedDates
             .compactMap { dateFormatter.date(from: $0) }
             .sorted()
     }
-    
+
     func updateStreakAndPoints(allowLevelUpRewards: Bool = true) {
         let key = dateKey(for: Date())
         let previousLevel = userProfile.level
 
-        // Daily points = sum of snapshot points for today's completed tasks
-        userProfile.dailyPoints = todayTasks.reduce(0) { sum, task in
-            sum + (task.pointsHistory[key] ?? 0)
-        }
+        userProfile.dailyPoints = dailyEntries
+            .filter { $0.date == key }
+            .reduce(0) { $0 + $1.pointsEarned }
 
-        // XP = 2x RP for each completed task entry, independent from RP spend/deduction flows.
         userProfile.totalXP = totalEarnedXP()
-
-        // Level up every 100 XP.
         userProfile.level = 1 + (userProfile.totalXP / 100)
 
         if allowLevelUpRewards {
             let levelsGained = max(0, userProfile.level - previousLevel)
-            if levelsGained > 0 {
-                for _ in 0..<levelsGained {
-                    applyLevelUpReward()
-                }
-            }
+            for _ in 0..<levelsGained { applyLevelUpReward() }
         }
 
-        // Keep streak aligned with true consecutive perfect days.
         recalculateStreak()
-
         saveData()
     }
 
-    private func totalEarnedXP() -> Int {
-        tasks.reduce(0) { total, task in
-            let xpForTask = task.completionHistory.reduce(0) { partial, entry in
-                guard entry.value else { return partial }
-                if let storedXP = task.xpHistory[entry.key] {
-                    return partial + storedXP
-                }
-                let fallbackRP = task.pointsHistory[entry.key] ?? task.points
-                return partial + (fallbackRP * 2)
-            }
-            return total + xpForTask
-        }
-    }
-    
-    func getProgressPercentage() -> Double {
-        let applicableTasks = todayTasks
-        guard !applicableTasks.isEmpty else { return 0 }
-        let completed = applicableTasks.filter { $0.isCompleted }.count
-        return Double(completed) / Double(applicableTasks.count)
-    }
-    
-    func getProgressColor() -> Color {
-        let progress = getProgressPercentage()
-        
-        if progress <= 0.25 {
-            return Color(red: 1.0, green: 0.27, blue: 0.41) // Duolingo red
-        } else if progress <= 0.5 {
-            return Color(red: 1.0, green: 0.65, blue: 0.2) // Orange
-        } else if progress <= 0.75 {
-            return Color(red: 1.0, green: 0.92, blue: 0.23) // Yellow
-        } else {
-            return Color(red: 0.0, green: 0.816, blue: 0.518) // Duolingo green
-        }
-    }
-    
-    func buyShield() -> Bool {
-        let cost = shieldCost()
-        guard totalPoints >= cost && userProfile.streakShields < userProfile.shieldCapacity else {
-            return false
-        }
+    // MARK: - Persistence
 
-        guard spendRP(cost) else { return false }
-        
-        userProfile.streakShields += 1
-        updateStreakAndPoints()
-        return true
-    }
-    
-    func upgradeCapacity() -> Bool {
-        if userProfile.shieldCapacity == 1 && totalPoints >= 600 {
-            guard spendRP(600) else { return false }
-            
-            userProfile.shieldCapacity = 2
-            updateStreakAndPoints()
-            return true
-        }
-        
-        if userProfile.shieldCapacity == 2 && totalPoints >= 1400 {
-            guard spendRP(1400) else { return false }
-            
-            userProfile.shieldCapacity = 3
-            updateStreakAndPoints()
-            return true
-        }
-        
-        return false
-    }
-    
     private func saveData() {
-        UserDefaults.standard.set(try? JSONEncoder().encode(tasks), forKey: tasksKey)
-        UserDefaults.standard.set(try? JSONEncoder().encode(userProfile), forKey: userProfileKey)
+        UserDefaults.standard.set(try? JSONEncoder().encode(recurringTasks), forKey: recurringTasksKey)
+        UserDefaults.standard.set(try? JSONEncoder().encode(dailyEntries),   forKey: dailyEntriesKey)
+        UserDefaults.standard.set(try? JSONEncoder().encode(userProfile),    forKey: userProfileKey)
     }
-    
-    private func loadData() {
-        if let data = UserDefaults.standard.data(forKey: tasksKey) {
-            if let decodedTasks = try? JSONDecoder().decode([Task].self, from: data) {
-                tasks = decodedTasks
-            }
-        }
 
-        if let profileData = UserDefaults.standard.data(forKey: userProfileKey),
-           let decodedProfile = try? JSONDecoder().decode(UserProfile.self, from: profileData) {
-            userProfile = decodedProfile
+    private func loadData() {
+        if let data = UserDefaults.standard.data(forKey: recurringTasksKey),
+           let decoded = try? JSONDecoder().decode([RecurringTask].self, from: data) {
+            recurringTasks = decoded
+        }
+        if let data = UserDefaults.standard.data(forKey: dailyEntriesKey),
+           let decoded = try? JSONDecoder().decode([DailyTaskEntry].self, from: data) {
+            dailyEntries = decoded
+        }
+        if let data = UserDefaults.standard.data(forKey: userProfileKey),
+           let decoded = try? JSONDecoder().decode(UserProfile.self, from: data) {
+            userProfile = decoded
         } else {
-            // Migrate data from legacy flat keys.
             var migratedProfile = UserProfile()
             let legacyLevel = UserDefaults.standard.integer(forKey: levelKey)
             migratedProfile.level = legacyLevel == 0 ? 1 : legacyLevel
@@ -411,57 +368,147 @@ class TaskViewModel: ObservableObject {
             saveData()
         }
     }
-    
-    private func checkDailyReset() {
-        let today = Calendar.current.startOfDay(for: Date())
-        
-        if let lastCheck = UserDefaults.standard.object(forKey: lastCheckKey) as? Date {
-            let lastCheckDate = Calendar.current.startOfDay(for: lastCheck)
-            if today > lastCheckDate {
-                // New day - reset recurring tasks
-                let todayWeekday = Calendar.current.component(.weekday, from: Date()) - 1 // 0-6 Sun-Sat
-                
-                tasks = tasks.map { var task = $0
-                    // Reset completion if it's a recurring task and today is one of its days
-                    if !task.recurringDays.isEmpty {
-                        if task.isEveryday || task.recurringDays.contains(todayWeekday) {
-                            task.isCompleted = false
-                            task.completionHistory[dateKey(for: today)] = false
-                        }
-                    }
-                    return task
-                }
-                saveData()
-            }
-        }
-        UserDefaults.standard.set(Date(), forKey: lastCheckKey)
+
+    // MARK: - Migration from old Task model
+
+    private struct LegacyTask: Codable {
+        var id: UUID = UUID()
+        var title: String
+        var createdAt: Date = Date()
+        var deletedAt: Date? = nil
+        var recurringDays: [Int] = []
+        var isEveryday: Bool = false
+        var points: Int = 1
+        var completionHistory: [String: Bool] = [:]
+        var pointsHistory: [String: Int] = [:]
+        var xpHistory: [String: Int] = [:]
     }
 
+    private func migrateV2IfNeeded() {
+        guard !UserDefaults.standard.bool(forKey: migrationV2Key) else { return }
+
+        defer { UserDefaults.standard.set(true, forKey: migrationV2Key) }
+
+        guard let data = UserDefaults.standard.data(forKey: "tasks"),
+              let oldTasks = try? JSONDecoder().decode([LegacyTask].self, from: data),
+              !oldTasks.isEmpty else {
+            return
+        }
+
+        var newTasks: [RecurringTask] = []
+        var newEntries: [DailyTaskEntry] = []
+
+        for old in oldTasks {
+            var newTask = RecurringTask(title: old.title)
+            newTask.id = old.id
+            newTask.createdAt = old.createdAt
+            newTask.deletedAt = old.deletedAt
+            newTask.recurringDays = old.recurringDays
+            newTask.isEveryday = old.isEveryday
+            newTask.points = old.points
+            newTasks.append(newTask)
+
+            for (dateStr, isCompleted) in old.completionHistory {
+                let earnedRP = old.pointsHistory[dateStr] ?? 0
+                let earnedXP = old.xpHistory[dateStr] ?? (earnedRP * 2)
+                let entry = DailyTaskEntry(
+                    taskID: old.id,
+                    date: dateStr,
+                    isDone: isCompleted,
+                    pointsEarned: earnedRP,
+                    xpEarned: earnedXP
+                )
+                newEntries.append(entry)
+            }
+        }
+
+        recurringTasks = newTasks
+        dailyEntries = newEntries
+        saveData()
+    }
+
+    // MARK: - Backfill
+
+    private func isTaskApplicable(_ task: RecurringTask, on date: Date) -> Bool {
+        let calendar = Calendar.current
+        let day = calendar.startOfDay(for: date)
+        let createdDay = calendar.startOfDay(for: task.createdAt)
+        guard day >= createdDay else { return false }
+
+        if let deletedAt = task.deletedAt {
+            let deletedDay = calendar.startOfDay(for: deletedAt)
+            if day > deletedDay { return false }
+        }
+
+        if task.isEveryday { return true }
+
+        if !task.recurringDays.isEmpty {
+            let weekday = calendar.component(.weekday, from: date) - 1
+            return task.recurringDays.contains(weekday)
+        }
+
+        return calendar.isDate(task.createdAt, inSameDayAs: date)
+    }
+
+    private func backfill(task: RecurringTask, upTo today: Date) {
+        let calendar = Calendar.current
+        let todayStart = calendar.startOfDay(for: today)
+
+        let existingDates = Set(
+            dailyEntries
+                .filter { $0.taskID == task.id }
+                .map { $0.date }
+        )
+
+        var cursor = calendar.startOfDay(for: task.createdAt)
+
+        while cursor <= todayStart {
+            if isTaskApplicable(task, on: cursor) {
+                let key = dateFormatter.string(from: cursor)
+                if !existingDates.contains(key) {
+                    dailyEntries.append(DailyTaskEntry(taskID: task.id, date: key))
+                }
+            }
+            guard let next = calendar.date(byAdding: .day, value: 1, to: cursor) else { break }
+            cursor = next
+        }
+    }
+
+    private func backfillAllTasks() {
+        let today = Date()
+        for task in recurringTasks {
+            backfill(task: task, upTo: today)
+        }
+        saveData()
+    }
+
+    // MARK: - Recovery seed
+
     private func applyRecoverySeedIfNeeded() {
-        // One-time safety net: restore a minimal snapshot only when data is empty.
         guard !UserDefaults.standard.bool(forKey: recoverySeedKey) else { return }
-        guard tasks.isEmpty else { return }
+        guard recurringTasks.isEmpty else { return }
         guard userProfile.totalXP == 0 && userProfile.rewardBonusRPByDate.isEmpty else { return }
 
         var components = DateComponents()
-        components.year = 2026
-        components.month = 3
-        components.day = 28
-        let calendar = Calendar.current
-        guard let recoveryDate = calendar.date(from: components) else { return }
+        components.year = 2026; components.month = 3; components.day = 28
+        guard let recoveryDate = Calendar.current.date(from: components) else { return }
 
         let key = dateKey(for: recoveryDate)
-
-        var recoveredTask = Task(title: "Recovered Progress (28 Mar)")
+        var recoveredTask = RecurringTask(title: "Recovered Progress (28 Mar)")
         recoveredTask.createdAt = recoveryDate
         recoveredTask.isEveryday = false
         recoveredTask.recurringDays = []
-        recoveredTask.completionHistory[key] = true
-        recoveredTask.pointsHistory[key] = 46
-        recoveredTask.xpHistory[key] = 92
-        recoveredTask.isCompleted = false
 
-        tasks = [recoveredTask]
+        let entry = DailyTaskEntry(
+            taskID: recoveredTask.id,
+            date: key,
+            isDone: true,
+            pointsEarned: 46,
+            xpEarned: 92
+        )
+
+        recurringTasks = [recoveredTask]
+        dailyEntries = [entry]
         userProfile.level = 1
         userProfile.totalXP = 92
         userProfile.dailyPoints = 0
@@ -470,81 +517,13 @@ class TaskViewModel: ObservableObject {
         saveData()
     }
 
-    private func applyTaskStateForToday() {
-        let today = Date()
-        let key = dateKey(for: today)
-
-        tasks = tasks.map { task in
-            var updatedTask = task
-            if isTaskApplicable(updatedTask, on: today) {
-                updatedTask.isCompleted = updatedTask.completionHistory[key] ?? false
-            } else {
-                updatedTask.isCompleted = false
-            }
-            return updatedTask
-        }
-    }
-
-    private func isTaskApplicable(_ task: Task, on date: Date) -> Bool {
-        let calendar = Calendar.current
-        let day = calendar.startOfDay(for: date)
-        let createdDay = calendar.startOfDay(for: task.createdAt)
-        let deletedDay = task.deletedAt.map { calendar.startOfDay(for: $0) }
-
-        // A task should never be shown before it exists.
-        guard day >= createdDay else {
-            return false
-        }
-
-        // Deleted tasks still exist for history up to their deletion day.
-        if let deletedDay, day > deletedDay {
-            return false
-        }
-
-        if task.isEveryday {
-            return true
-        }
-
-        if !task.recurringDays.isEmpty {
-            let weekday = calendar.component(.weekday, from: date) - 1 // 0-6 Sun-Sat
-            return task.recurringDays.contains(weekday)
-        }
-
-        return calendar.isDate(task.createdAt, inSameDayAs: date)
-    }
-
-    private func isTaskActive(_ task: Task) -> Bool {
-        task.deletedAt == nil
-    }
+    // MARK: - Streak
 
     private func isPerfectDay(_ date: Date) -> Bool {
-        let applicableTasks = tasks.filter { isTaskApplicable($0, on: date) }
-        guard !applicableTasks.isEmpty else { return false }
-
         let key = dateKey(for: date)
-        return applicableTasks.allSatisfy { task in
-            task.completionHistory[key] ?? false
-        }
-    }
-
-    private func recalculateStreak() {
-        let newStreakCount = currentStreakDates().count
-        let previousStreakCount = userProfile.streak
-        
-        // Check if streak would reset (new count < previous count)
-        if newStreakCount < previousStreakCount && previousStreakCount > 0 {
-            // Streak would reset - try to consume a shield
-            if userProfile.streakShields > 0 {
-                userProfile.streakShields -= 1
-                shieldUsedThisRound = true
-                // Keep previous streak by not updating it
-                return
-            }
-        }
-        
-        // No shield available or streak didn't reset, update normally
-        userProfile.streak = newStreakCount
-        shieldUsedThisRound = false
+        let entriesForDay = dailyEntries.filter { $0.date == key }
+        guard !entriesForDay.isEmpty else { return false }
+        return entriesForDay.allSatisfy { $0.isDone }
     }
 
     private func consecutivePerfectDates(endingAt endDate: Date) -> [Date] {
@@ -554,27 +533,75 @@ class TaskViewModel: ObservableObject {
 
         while isPerfectDay(cursor) {
             dates.append(cursor)
-            guard let previous = calendar.date(byAdding: .day, value: -1, to: cursor) else {
-                break
-            }
+            guard let previous = calendar.date(byAdding: .day, value: -1, to: cursor) else { break }
             cursor = previous
         }
 
         return dates.reversed()
     }
 
-    private func dateKey(for date: Date) -> String {
-        dateFormatter.string(from: Calendar.current.startOfDay(for: date))
+    private func recalculateStreak() {
+        let newStreakCount = currentStreakDates().count
+        let previousStreakCount = userProfile.streak
+
+        if newStreakCount < previousStreakCount && previousStreakCount > 0 {
+            if userProfile.streakShields > 0 {
+                userProfile.streakShields -= 1
+                shieldUsedThisRound = true
+                let key = dateKey(for: Date())
+                if !userProfile.shieldUsedDates.contains(key) {
+                    userProfile.shieldUsedDates.append(key)
+                }
+                return
+            }
+        }
+
+        userProfile.streak = newStreakCount
+        shieldUsedThisRound = false
     }
 
-    private func applyTaskCompletionReward(for task: Task) {
-        // 5% trigger chance on completion to keep random rewards very rare.
+    // MARK: - RP / XP helpers
+
+    private func totalEarnedXP() -> Int {
+        dailyEntries.reduce(0) { $0 + $1.xpEarned }
+    }
+
+    private func shieldCost() -> Int {
+        switch userProfile.streakShields {
+        case 0: return 150
+        case 1: return 250
+        case 2: return 400
+        default: return 0
+        }
+    }
+
+    private func spendRP(_ amount: Int) -> Bool {
+        guard amount > 0 else { return true }
+        guard totalPoints >= amount else { return false }
+        userProfile.totalSpentRP += amount
+        return true
+    }
+
+    private func scaledTaskRP(_ baseRP: Int) -> Int {
+        max(1, Int((Double(baseRP) * userProfile.taskRPMultiplier).rounded()))
+    }
+
+    private func scaledXP(fromTaskRP taskRP: Int) -> Int {
+        max(1, Int((Double(taskRP * 2) * userProfile.xpMultiplier).rounded()))
+    }
+
+    private func scaledRewardRP(_ baseRP: Int) -> Int {
+        max(1, Int((Double(baseRP) * userProfile.rewardRPMultiplier).rounded()))
+    }
+
+    // MARK: - Rewards
+
+    private func applyTaskCompletionReward(for task: RecurringTask) {
         let triggerChance = min(1.0, 0.05 * userProfile.rewardChanceMultiplier)
         guard Double.random(in: 0...1) <= triggerChance else { return }
 
         let rawTaskBonus = max(Int.random(in: 3...10), task.points)
         let taskBonus = scaledRewardRP(rawTaskBonus)
-        // 80% RP / 20% shield inside the trigger => 1% shield overall at 5% base trigger.
         if Double.random(in: 0...1) <= 0.80 {
             grantBonusRP(taskBonus)
         } else {
@@ -583,7 +610,6 @@ class TaskViewModel: ObservableObject {
     }
 
     private func applyLevelUpReward() {
-        // Guaranteed reward on each level gained.
         let levelUpBonus = scaledRewardRP(Int.random(in: 10...20))
         if Double.random(in: 0...1) <= 0.70 {
             grantBonusRP(levelUpBonus)
@@ -608,22 +634,23 @@ class TaskViewModel: ObservableObject {
         }
     }
 
-    private func spendRP(_ amount: Int) -> Bool {
-        guard amount > 0 else { return true }
-        guard totalPoints >= amount else { return false }
-        userProfile.totalSpentRP += amount
-        return true
+    // MARK: - Audio
+
+    private func playTaskCompleteSound() {
+        guard let url = Bundle.main.url(forResource: "taskComplete", withExtension: "mp3") else { return }
+        audioPlayer = try? AVAudioPlayer(contentsOf: url)
+        audioPlayer?.play()
     }
 
-    private func scaledTaskRP(_ baseRP: Int) -> Int {
-        max(1, Int((Double(baseRP) * userProfile.taskRPMultiplier).rounded()))
+    private func playAllCompleteSound() {
+        guard let url = Bundle.main.url(forResource: "Complete", withExtension: "mp3") else { return }
+        audioPlayer = try? AVAudioPlayer(contentsOf: url)
+        audioPlayer?.play()
     }
 
-    private func scaledXP(fromTaskRP taskRP: Int) -> Int {
-        max(1, Int((Double(taskRP * 2) * userProfile.xpMultiplier).rounded()))
-    }
+    // MARK: - Date key
 
-    private func scaledRewardRP(_ baseRP: Int) -> Int {
-        max(1, Int((Double(baseRP) * userProfile.rewardRPMultiplier).rounded()))
+    private func dateKey(for date: Date) -> String {
+        dateFormatter.string(from: Calendar.current.startOfDay(for: date))
     }
 }
