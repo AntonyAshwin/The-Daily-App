@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//Users/I528714/Desktop/MyIOSApp/**)"
+    ]
+  }
+}
