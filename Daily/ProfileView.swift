@@ -31,12 +31,27 @@ struct ProfileView: View {
 
     private var streak: Int { computeStreak() }
 
-    /// All dates where every task was completed (for calendar highlighting)
-    private var completedDays: Set<String> {
+    enum DayCompletion { case full, high, partial, low, none }
+
+    /// Completion state per date key for calendar highlighting
+    private var dayCompletionMap: [String: DayCompletion] {
         let grouped = Dictionary(grouping: allEntries, by: { $0.date })
-        return Set(grouped.compactMap { date, entries -> String? in
-            entries.isEmpty ? nil : (entries.allSatisfy { $0.isCompleted } ? date : nil)
-        })
+        var result: [String: DayCompletion] = [:]
+        for (date, entries) in grouped {
+            guard !entries.isEmpty else { continue }
+            let total = entries.count
+            let done = entries.filter { $0.isCompleted }.count
+            if done == total {
+                result[date] = .full
+            } else if done * 4 >= total * 3 {
+                result[date] = .high
+            } else if done * 2 >= total {
+                result[date] = .partial
+            } else {
+                result[date] = .low
+            }
+        }
+        return result
     }
 
     var body: some View {
@@ -150,15 +165,16 @@ struct ProfileView: View {
 
             // Calendar grid
             let days = calendarDays(for: displayedMonth)
+            let completionMap = dayCompletionMap
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 7), spacing: 4) {
                 ForEach(days.indices, id: \.self) { i in
                     if let date = days[i] {
                         let key = Self.dateFormatter.string(from: date)
-                        let isCompleted = completedDays.contains(key)
+                        let completion = completionMap[key] ?? .none
                         let isToday = Calendar.current.isDateInToday(date)
                         CalendarDayCell(
                             day: Calendar.current.component(.day, from: date),
-                            isCompleted: isCompleted,
+                            completion: completion,
                             isToday: isToday
                         )
                     } else {
@@ -247,22 +263,33 @@ private struct StatCell: View {
 
 private struct CalendarDayCell: View {
     let day: Int
-    let isCompleted: Bool
+    let completion: ProfileView.DayCompletion
     let isToday: Bool
 
+    private var fillColor: Color? {
+        switch completion {
+        case .full:    return Color.green.opacity(0.75)
+        case .high:    return Color.yellow.opacity(0.75)
+        case .partial: return Color.orange.opacity(0.75)
+        case .low:     return Color.red.opacity(0.75)
+        case .none:    return nil
+        }
+    }
+
     var body: some View {
+        let filled = fillColor != nil
         Text("\(day)")
             .font(.caption)
             .fontWeight(isToday ? .bold : .regular)
             .frame(width: 32, height: 32)
             .background {
-                if isCompleted {
-                    Circle().fill(Color.green.opacity(0.75))
+                if let color = fillColor {
+                    Circle().fill(color)
                 } else if isToday {
                     Circle().strokeBorder(Color.accentColor, lineWidth: 1.5)
                 }
             }
-            .foregroundStyle(isCompleted ? .white : (isToday ? .accentColor : .primary))
+            .foregroundStyle(filled ? .white : (isToday ? .accentColor : .primary))
     }
 }
 

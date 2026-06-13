@@ -7,13 +7,13 @@ struct ContentView: View {
                 .tabItem {
                     Label("Today", systemImage: "checkmark.circle")
                 }
-            ConfigureTasksView()
-                .tabItem {
-                    Label("Configure", systemImage: "gearshape")
-                }
             ProfileView()
                 .tabItem {
                     Label("Profile", systemImage: "person.circle")
+                }
+            ConfigureTasksView()
+                .tabItem {
+                    Label("Configure", systemImage: "gearshape")
                 }
         }
     }
